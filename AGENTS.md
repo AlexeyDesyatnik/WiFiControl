@@ -17,3 +17,13 @@ Much of the core (IPv4 parsing and validation, netsh commands, DHCP without a co
 ## Build and test
 
 Planned: .NET SDK 10, `dotnet build WiFiControl.sln -c Release`, `dotnet test WiFiControl.sln`. Update this section when the solution exists.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`AlexeyDesyatnik/WiFiControl`), managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` at the repo root and ADRs in `docs/adr/`. See `docs/agents/domain.md`.
