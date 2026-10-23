@@ -1,0 +1,14 @@
+# Сборка
+artifacts/
+dist/
+bin/
+obj/
+
+# Visual Studio и Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# Отчёты разведочной сборки, если запускать её из репозитория
+Отчёты/
