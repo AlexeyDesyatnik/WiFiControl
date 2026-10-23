@@ -28,6 +28,19 @@ internal interface IReadOnlySystem
 
     /// <returns>null, если точки доступа с таким BSSID нет в списке BSS адаптера.</returns>
     ConnectedBss? ReadConnectedBss(Guid adapter, string bssid);
+
+    /// <summary>Адаптеры «Сетевых подключений» (<c>Win32_NetworkAdapter</c>) с настроенными и действующими настройками IPv4.</summary>
+    IReadOnlyList<Adapter> ReadAdapters();
+
+    /// <summary>Пользователь, вошедший в сеанс программы: системный прокси — его, даже если права получены под другой учётной записью.</summary>
+    InteractiveUser ReadInteractiveUser();
+
+    /// <summary>Системный прокси пользователя вместе с автоопределением и сценарием настройки.</summary>
+    SystemProxyState ReadSystemProxy(string userSid);
+
+    ProxyPolicy ReadProxyPolicy(string userSid);
+
+    ProxySettings ReadWinHttpProxy();
 }
 
 /// <summary>Источник времени; в тестах подменяется.</summary>

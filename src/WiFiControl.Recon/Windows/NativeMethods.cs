@@ -10,6 +10,9 @@ internal static class NativeMethods
     private const int ScManagerConnect = 0x0001;
     private const int ServiceQueryStatus = 0x0004;
     private const int ScStatusProcessInfo = 0;
+    private const int WtsUserName = 5;
+    private const int WtsDomainName = 7;
+    private const int WinHttpAccessNamedProxy = 3;
 
     public static int ParentProcessId(IntPtr process)
     {
@@ -41,6 +44,40 @@ internal static class NativeMethods
         finally
         {
             CloseServiceHandle(manager);
+        }
+    }
+
+    public static string SessionUserName(int session) => SessionText(session, WtsUserName);
+
+    public static string SessionDomainName(int session) => SessionText(session, WtsDomainName);
+
+    private static string SessionText(int session, int infoClass)
+    {
+        if (!WTSQuerySessionInformation(IntPtr.Zero, session, infoClass, out IntPtr buffer, out _))
+            throw LastError("WTSQuerySessionInformation");
+        try
+        {
+            return Marshal.PtrToStringUni(buffer) ?? "";
+        }
+        finally
+        {
+            WTSFreeMemory(buffer);
+        }
+    }
+
+    /// <returns>Задан ли прокси (а не прямое подключение), сервер и исключения как их хранит Windows.</returns>
+    public static (bool Named, string? Proxy, string? Bypass) WinHttpDefaultProxy()
+    {
+        var info = new WinHttpProxyInfo();
+        if (!WinHttpGetDefaultProxyConfiguration(ref info)) throw LastError("WinHttpGetDefaultProxyConfiguration");
+        try
+        {
+            return (info.AccessType == WinHttpAccessNamedProxy, Marshal.PtrToStringUni(info.Proxy), Marshal.PtrToStringUni(info.ProxyBypass));
+        }
+        finally
+        {
+            if (info.Proxy != IntPtr.Zero) GlobalFree(info.Proxy);
+            if (info.ProxyBypass != IntPtr.Zero) GlobalFree(info.ProxyBypass);
         }
     }
 
@@ -76,6 +113,14 @@ internal static class NativeMethods
         public int ServiceFlags;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WinHttpProxyInfo
+    {
+        public int AccessType;
+        public IntPtr Proxy;
+        public IntPtr ProxyBypass;
+    }
+
     [DllImport("ntdll.dll")]
     private static extern int NtQueryInformationProcess(IntPtr process, int infoClass, out ProcessBasic info, int length, out int returnLength);
 
@@ -93,4 +138,16 @@ internal static class NativeMethods
 
     [DllImport("advapi32.dll")]
     private static extern bool CloseServiceHandle(IntPtr handle);
+
+    [DllImport("wtsapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool WTSQuerySessionInformation(IntPtr server, int sessionId, int infoClass, out IntPtr buffer, out int bytesReturned);
+
+    [DllImport("wtsapi32.dll")]
+    private static extern void WTSFreeMemory(IntPtr memory);
+
+    [DllImport("winhttp.dll", SetLastError = true)]
+    private static extern bool WinHttpGetDefaultProxyConfiguration(ref WinHttpProxyInfo info);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GlobalFree(IntPtr memory);
 }

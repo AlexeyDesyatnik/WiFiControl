@@ -110,6 +110,16 @@ internal sealed class WindowsSystem : IReadOnlySystem
         return bss == null ? null : new ConnectedBss(bss.Frequency, bss.Band, bss.Channel, bss.Rssi);
     }
 
+    public IReadOnlyList<Adapter> ReadAdapters() => AdapterReader.ReadAll();
+
+    public InteractiveUser ReadInteractiveUser() => ProxyReader.ReadInteractiveUser();
+
+    public SystemProxyState ReadSystemProxy(string userSid) => ProxyReader.ReadSystemProxy(userSid);
+
+    public ProxyPolicy ReadProxyPolicy(string userSid) => ProxyReader.ReadPolicy(userSid);
+
+    public ProxySettings ReadWinHttpProxy() => ProxyReader.ReadWinHttp();
+
     private static string FormatBssid(NetworkIdentifier bssid) => BitConverter.ToString(bssid.ToBytes());
 
     private static ParentProcess ReadParent()

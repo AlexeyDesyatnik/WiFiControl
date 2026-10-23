@@ -89,6 +89,57 @@ public class MachineSmokeTests
     }
 
     [Fact]
+    public void Reads_adapters_with_their_ipv4_settings()
+    {
+        IReadOnlyList<Adapter> adapters = new WindowsSystem().ReadAdapters();
+
+        Assert.NotEmpty(adapters);
+        Assert.All(adapters, adapter =>
+        {
+            Assert.NotEqual("", adapter.Name);
+            Assert.NotEqual(Guid.Empty, adapter.Id);
+            // Действующие настройки читаются только при соединении
+            if (adapter.Active != null) Assert.Equal(AdapterState.Connected, adapter.State);
+        });
+    }
+
+    [Fact]
+    public void Wifi_adapters_are_found_among_network_adapters()
+    {
+        var system = new WindowsSystem();
+        IReadOnlyList<WifiAdapter> wifiAdapters;
+        try
+        {
+            wifiAdapters = system.ReadWifiAdapters();
+        }
+        catch (Exception ex) when (IsWlanRefusal(ex))
+        {
+            return;
+        }
+
+        IReadOnlyList<Adapter> adapters = system.ReadAdapters();
+        foreach (WifiAdapter wifi in wifiAdapters)
+        {
+            Adapter adapter = Assert.Single(adapters, a => a.Id == wifi.Id);
+            if (adapter.State != AdapterState.Disabled) Assert.True(adapter.IsWireless, adapter.Name);
+        }
+    }
+
+    [Fact]
+    public void Reads_proxy_of_this_machine()
+    {
+        var system = new WindowsSystem();
+
+        InteractiveUser user = system.ReadInteractiveUser();
+        system.ReadSystemProxy(user.Sid);
+        system.ReadProxyPolicy(user.Sid);
+        system.ReadWinHttpProxy();
+
+        Assert.StartsWith("S-1-5-", user.Sid);
+        Assert.True(user.IsProcessOwner);
+    }
+
+    [Fact]
     public void Builds_a_full_report_for_this_machine()
     {
         var log = new ReconLog(new WindowsSystem(), new SystemClock(), "тест");
@@ -99,16 +150,27 @@ public class MachineSmokeTests
         // Отчёт остаётся в каталоге сборки тестов, чтобы его можно было просмотреть глазами
         File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "machine-report.txt"), report.Text);
 
-        foreach (string section in new[] { "[Система]", "[Windows]", "[Процесс]", "[Запуск]", "[Wi-Fi-адаптеры]", "[Текущее подключение]" })
+        string[] sections = ["[Система]", "[Wi-Fi-адаптеры]", "[Текущее подключение]", "[Настройки IPv4]", "[Системный прокси]", "[WinHTTP-прокси]"];
+        foreach (string section in sections.Concat(["[Windows]", "[Процесс]", "[Запуск]"]))
         {
             Assert.Contains(report.Lines, line => line.Trim() == section);
         }
 
-        // Отказы WLAN API допустимы (см. IsWlanRefusal), а раздел «Система» должен читаться всегда
+        // Отказы WLAN API допустимы (см. IsWlanRefusal), остальные разделы должны читаться всегда
         List<string> lines = report.Lines.ToList();
-        int systemSection = lines.IndexOf("  [Система]");
-        int wifi = lines.IndexOf("  [Wi-Fi-адаптеры]");
-        Assert.DoesNotContain(lines.Skip(systemSection).Take(wifi - systemSection), line => line.Contains("ОШИБКА"));
-        Assert.DoesNotContain(lines.Skip(wifi), line => line.Contains("ОШИБКА") && !line.Contains("Win32Exception") && !line.Contains("UnauthorizedAccessException"));
+        Assert.DoesNotContain(Section(lines, "[Система]"), line => line.Contains("ОШИБКА"));
+        Assert.DoesNotContain(lines.SkipWhile(line => line.Trim() != "[Wi-Fi-адаптеры]").TakeWhile(line => line.Trim() != "[Настройки IPv4]"),
+            line => line.Contains("ОШИБКА") && !line.Contains("Win32Exception") && !line.Contains("UnauthorizedAccessException"));
+        foreach (string section in new[] { "[Настройки IPv4]", "[Системный прокси]", "[WinHTTP-прокси]" })
+        {
+            Assert.DoesNotContain(Section(lines, section), line => line.Contains("ОШИБКА"));
+        }
+    }
+
+    /// <summary>Строки раздела второго уровня — до следующего раздела того же уровня.</summary>
+    private static IEnumerable<string> Section(List<string> lines, string title)
+    {
+        int start = lines.IndexOf("  " + title);
+        return lines.Skip(start + 1).TakeWhile(line => line.StartsWith("    ", StringComparison.Ordinal));
     }
 }

@@ -66,6 +66,9 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
                 IReadOnlyList<WifiAdapter>? adapters = null;
                 report.Section("Wi-Fi-адаптеры", () => adapters = WifiAdaptersSection(report));
                 report.Section("Текущее подключение", () => CurrentConnectionSection(report, adapters));
+                report.Section("Настройки IPv4", () => Ipv4Section(report, adapters));
+                report.Section("Системный прокси", () => SystemProxySection(report));
+                report.Section("WinHTTP-прокси", () => ProxyValues(report, system.ReadWinHttpProxy()));
             });
 
             var reading = new Reading(number, occasion, when, report.Lines.ToList(), report.HasErrors);
@@ -163,6 +166,95 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
                 report.Value("RSSI", bss.Rssi + " дБм");
             });
         }
+    }
+
+    private void Ipv4Section(Report report, IReadOnlyList<WifiAdapter>? wifiAdapters)
+    {
+        if (wifiAdapters == null)
+        {
+            report.Line("Не прочитано: нет списка Wi-Fi-адаптеров");
+            return;
+        }
+        if (wifiAdapters.Count == 0)
+        {
+            report.Line("Wi-Fi-адаптеров нет");
+            return;
+        }
+
+        IReadOnlyList<Adapter> adapters = system.ReadAdapters();
+        foreach (WifiAdapter wifi in wifiAdapters)
+        {
+            report.Section(wifi.Description, () =>
+            {
+                Adapter? adapter = adapters.FirstOrDefault(a => a.Id == wifi.Id);
+                if (adapter == null)
+                {
+                    report.Line("Не прочитано: в «Сетевых подключениях» (Win32_NetworkAdapter) нет адаптера с таким GUID");
+                    return;
+                }
+
+                report.Value("Адаптер в «Сетевых подключениях»", adapter.Name + ", " + adapter.State);
+                report.Section("Настроено", () => ConfiguredIpv4(report, adapter.Configured));
+                report.Section("Действует", () => ActiveIpv4(report, adapter.Active));
+            });
+        }
+    }
+
+    private static void ConfiguredIpv4(Report report, Ipv4Settings settings)
+    {
+        report.Value("Получение адреса", settings.AutoAddress ? "автоматически" : "вручную");
+        if (!settings.AutoAddress)
+        {
+            report.Value("Адрес", settings.Address);
+            report.Value("Маска", settings.Mask);
+            report.Value("Шлюз", settings.Gateway);
+        }
+
+        report.Value("Получение DNS", settings.AutoDns ? "автоматически" : "вручную");
+        if (!settings.AutoDns) report.Value("DNS", settings.Dns.ToArray());
+    }
+
+    private static void ActiveIpv4(Report report, ActiveIpv4? active)
+    {
+        if (active == null)
+        {
+            report.Line("Не прочитано: нет соединения — сетевой стек отдал бы адрес 169.254.x.x и прежние DNS");
+            return;
+        }
+
+        report.Value("Адреса", active.Addresses.ToArray());
+        report.Value("Шлюзы", active.Gateways.ToArray());
+        report.Value("DNS", active.Dns.ToArray());
+        report.Value("Конфликт адресов", active.HasConflict);
+    }
+
+    private void SystemProxySection(Report report)
+    {
+        InteractiveUser user = system.ReadInteractiveUser();
+        report.Value("Интерактивный пользователь", user.Name);
+        report.Value("SID", user.Sid);
+        report.Value("Он же владелец процесса", user.IsProcessOwner);
+
+        SystemProxyState proxy = system.ReadSystemProxy(user.Sid);
+        ProxyValues(report, proxy.Settings);
+        report.Value("Автоопределение", proxy.AutoDetect);
+        report.Value("Сценарий настройки", proxy.AutoConfigUrl);
+
+        report.Section("Политики", () =>
+        {
+            ProxyPolicy policy = system.ReadProxyPolicy(user.Sid);
+            report.Value("Прокси один на компьютер", policy.PerMachine);
+            report.Value("Значения задаёт политика", policy.SetsValues);
+            report.Value("Изменение запрещено политикой", policy.ChangeLocked);
+        });
+    }
+
+    private static void ProxyValues(Report report, ProxySettings proxy)
+    {
+        report.Value("Прокси включён", proxy.Enabled);
+        report.Value("Сервер", proxy.Server);
+        report.Value("Исключения", proxy.Exceptions.ToArray());
+        report.Value("Не через прокси для локальных адресов", proxy.BypassLocal);
     }
 
     private static string Basis(LaunchOrigin launch)
