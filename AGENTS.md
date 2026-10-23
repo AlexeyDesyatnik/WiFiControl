@@ -12,7 +12,7 @@ Single-context: one `GLOSSARY.md` at the repo root and ADRs in `docs/adr/`. Read
 
 ## Predecessor: NetSwitch
 
-Much of the core (IPv4 parsing and validation, netsh commands, DHCP without a connection, system and WinHTTP proxy writing, the step-based applier with undo, the `INetworkSystem` + fake-system test approach, atomic JSON store) is ported from NetSwitch: https://github.com/AlexeyDesyatnik/NetSwitch (local clone: `C:\Users\AlexD\GitHub\NetSwitch`). Read its ADRs before changing anything in how settings are written. Do not modify the NetSwitch repo from this project.
+Much of the core (IPv4 parsing and validation, netsh commands, DHCP without a connection, system and WinHTTP proxy writing, the step-based applier with undo, the `INetworkSystem` + fake-system test approach, atomic JSON store) is ported from NetSwitch: https://github.com/AlexeyDesyatnik/NetSwitch. Read its ADRs before changing anything in how settings are written. Do not modify the NetSwitch repo from this project.
 
 ## Build and test
 
