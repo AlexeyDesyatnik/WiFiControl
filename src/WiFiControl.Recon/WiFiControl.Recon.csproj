@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>WiFiControl.Recon</RootNamespace>
+    <AssemblyName>WiFiControl.Recon</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>0.0.0-dev</Version>
+    <!-- Без «+хеш коммита»: версия показывается в заголовке окна и в отчёте -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Product>WiFiControl — разведочная сборка</Product>
+    <Description>Читает состояние Windows и записывает события Wi-Fi, ничего не меняя</Description>
+    <!-- Fluent-тема (ThemeMode) в WPF помечена как экспериментальная -->
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WiFiControl.Recon.Tests" />
+  </ItemGroup>
+
+</Project>

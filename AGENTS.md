@@ -1,6 +1,6 @@
 ## Project status
 
-Documents only, no code yet. Start with `docs/roadmap.md`; the first task is the recon build described in `docs/recon.md`.
+Recon build in progress (`docs/recon.md`, issue #1 and its sub-issues); the main tool has no code yet. Start with `docs/roadmap.md`.
 
 ## Language
 
@@ -16,7 +16,13 @@ Much of the core (IPv4 parsing and validation, netsh commands, DHCP without a co
 
 ## Build and test
 
-Planned: .NET SDK 10, `dotnet build WiFiControl.sln -c Release`, `dotnet test WiFiControl.sln`. Update this section when the solution exists.
+Requires .NET SDK 10 on Windows.
+
+- Build: `dotnet build WiFiControl.sln -c Release`. Warnings are errors (`Directory.Build.props`). Build output goes to `artifacts/`.
+- Test: `dotnet test WiFiControl.sln`.
+- Tests marked `[Trait("Category", "Machine")]` read the machine they run on: they change nothing and need no admin rights. `MachineSmokeTests` leaves `machine-report.txt` in the test build directory (`artifacts/bin/WiFiControl.Recon.Tests/debug/`). To skip them: `dotnet test WiFiControl.sln --filter "Category!=Machine"`.
+
+Projects: `src/WiFiControl.Recon` (the recon build, WPF) and `tests/WiFiControl.Recon.Tests` (xUnit). All Windows access goes through `IReadOnlySystem`; tests use `FakeSystem` and `FakeClock`.
 
 ## Agent skills
 
