@@ -62,6 +62,10 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
             report.Section("Чтение " + number + ": " + occasion + ", " + Stamp(when), () =>
             {
                 report.Section("Система", () => SystemSection(report));
+                // null — список не получен: отказ уже записан в разделе адаптеров
+                IReadOnlyList<WifiAdapter>? adapters = null;
+                report.Section("Wi-Fi-адаптеры", () => adapters = WifiAdaptersSection(report));
+                report.Section("Текущее подключение", () => CurrentConnectionSection(report, adapters));
             });
 
             var reading = new Reading(number, occasion, when, report.Lines.ToList(), report.HasErrors);
@@ -95,6 +99,70 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
             report.Value("Из Планировщика", launch.FromScheduler is bool fromScheduler ? fromScheduler : "не определить");
             report.Value("Основание", Basis(launch));
         });
+    }
+
+    private IReadOnlyList<WifiAdapter> WifiAdaptersSection(Report report)
+    {
+        IReadOnlyList<WifiAdapter> adapters = system.ReadWifiAdapters();
+        if (adapters.Count == 0) report.Line("Wi-Fi-адаптеров нет");
+
+        foreach (WifiAdapter adapter in adapters)
+        {
+            report.Section(adapter.Description, () =>
+            {
+                report.Value("GUID", adapter.Id);
+                report.Value("Описание", adapter.Description);
+                report.Value("Состояние", adapter.State);
+
+                // Читается внутри раздела адаптера, чтобы отказ попал к нему, а GUID и состояние остались в отчёте
+                NetworkConnection? connection = system.ReadNetworkConnections().FirstOrDefault(c => c.Id == adapter.Id);
+                report.Value("Сетевое подключение", connection == null
+                    ? "нет — в «Сетевых подключениях» нет адаптера с таким GUID"
+                    : connection.Name + " (" + connection.Description + "), " + connection.Status);
+            });
+        }
+        return adapters;
+    }
+
+    private void CurrentConnectionSection(Report report, IReadOnlyList<WifiAdapter>? adapters)
+    {
+        if (adapters == null)
+        {
+            report.Line("Не прочитано: нет списка Wi-Fi-адаптеров");
+            return;
+        }
+        if (adapters.Count == 0) report.Line("Wi-Fi-адаптеров нет");
+
+        foreach (WifiAdapter adapter in adapters)
+        {
+            report.Section(adapter.Description, () =>
+            {
+                WifiConnection? connection = system.ReadCurrentConnection(adapter.Id);
+                if (connection == null)
+                {
+                    report.Line("Не подключён");
+                    return;
+                }
+
+                report.Value("SSID", connection.Ssid);
+                report.Value("BSSID", connection.Bssid);
+                report.Value("Профиль сети Windows", connection.WindowsProfileName);
+                report.Value("Режим подключения", connection.Mode);
+                report.Value("Защита включена", connection.IsSecurityEnabled);
+                report.Value("Тип защиты", connection.Authentication + ", " + connection.Cipher);
+                report.Value("Сигнал", connection.SignalQuality + " %");
+
+                ConnectedBss? bss = system.ReadConnectedBss(adapter.Id, connection.Bssid);
+                if (bss == null)
+                {
+                    report.Value("Частота", "нет — точки доступа с этим BSSID нет в списке BSS");
+                    return;
+                }
+
+                report.Value("Частота", bss.FrequencyKhz / 1000 + " МГц (" + Report.Format(bss.BandGhz) + " ГГц, канал " + bss.Channel + ")");
+                report.Value("RSSI", bss.Rssi + " дБм");
+            });
+        }
     }
 
     private static string Basis(LaunchOrigin launch)

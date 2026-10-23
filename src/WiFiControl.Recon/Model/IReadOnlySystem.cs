@@ -16,6 +16,18 @@ internal interface IReadOnlySystem
 
     /// <summary>Сведения, по которым видно, запущена ли программа из Планировщика.</summary>
     LaunchOrigin ReadLaunch();
+
+    /// <summary>Wi-Fi-адаптеры, которые видит WLAN API.</summary>
+    IReadOnlyList<WifiAdapter> ReadWifiAdapters();
+
+    /// <summary>Все адаптеры «Сетевых подключений», не только Wi-Fi.</summary>
+    IReadOnlyList<NetworkConnection> ReadNetworkConnections();
+
+    /// <returns>null, если адаптер не подключён.</returns>
+    WifiConnection? ReadCurrentConnection(Guid adapter);
+
+    /// <returns>null, если точки доступа с таким BSSID нет в списке BSS адаптера.</returns>
+    ConnectedBss? ReadConnectedBss(Guid adapter, string bssid);
 }
 
 /// <summary>Источник времени; в тестах подменяется.</summary>

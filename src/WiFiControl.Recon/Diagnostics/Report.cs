@@ -86,8 +86,13 @@ internal sealed class Report
     {
         Win32Exception win32 => " (код " + win32.NativeErrorCode + ")",
         ExternalException external => " (код 0x" + external.ErrorCode.ToString("X8", CultureInfo.InvariantCulture) + ")",
+        // Например, UnauthorizedAccessException, которым ManagedNativeWifi сообщает об ошибке 5
+        _ when (ex.HResult & unchecked((int)0xFFFF0000)) == FacilityWin32 => " (код " + (ex.HResult & 0xFFFF) + ")",
         _ => ""
     };
+
+    // HRESULT вида 0x8007xxxx несёт в младших битах код ошибки Windows
+    private const int FacilityWin32 = unchecked((int)0x80070000);
 
     internal static string Format(object? value)
     {

@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Net.NetworkInformation;
 using System.Security.Principal;
+using ManagedNativeWifi;
 using Microsoft.Win32;
 using WiFiControl.Recon.Model;
 
@@ -10,6 +12,14 @@ namespace WiFiControl.Recon.Windows;
 internal sealed class WindowsSystem : IReadOnlySystem
 {
     private const string CurrentVersionKey = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
+    private const int ErrorInvalidState = 5023;
+
+    static WindowsSystem()
+    {
+        // Без этого ManagedNativeWifi сводит часть отказов WLAN API к ActionResult и теряет код ошибки Windows.
+        // Настройка общая на весь процесс; разведка пользуется библиотекой только отсюда.
+        NativeWifi.ThrowsOnAnyFailure = true;
+    }
 
     public string ComputerName => Environment.MachineName;
 
@@ -39,6 +49,68 @@ internal sealed class WindowsSystem : IReadOnlySystem
     {
         return new LaunchOrigin(ReadParent(), ServiceProcessId("Schedule"));
     }
+
+    public IReadOnlyList<WifiAdapter> ReadWifiAdapters()
+    {
+        return NativeWifi.EnumerateInterfaces()
+            .Select(adapter => new WifiAdapter(adapter.Id, adapter.Description, adapter.State.ToString()))
+            .ToList();
+    }
+
+    public IReadOnlyList<NetworkConnection> ReadNetworkConnections()
+    {
+        var connections = new List<NetworkConnection>();
+        foreach (NetworkInterface adapter in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            // Id у адаптеров Windows — GUID в фигурных скобках, тот же, что у Wi-Fi-адаптера в WLAN API
+            if (Guid.TryParse(adapter.Id, out Guid id))
+            {
+                connections.Add(new NetworkConnection(id, adapter.Name, adapter.Description, adapter.OperationalStatus.ToString()));
+            }
+        }
+        return connections;
+    }
+
+    public WifiConnection? ReadCurrentConnection(Guid adapter)
+    {
+        (ActionResult result, CurrentConnectionInfo connection) value;
+        try
+        {
+            value = NativeWifi.GetCurrentConnection(adapter);
+        }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorInvalidState)
+        {
+            // Так WlanQueryInterface отвечает за адаптер без подключения
+            return null;
+        }
+
+        // Коды Windows бросаются исключениями (ThrowsOnAnyFailure), так что здесь остаётся только отказ самой обёртки
+        if (value.result != ActionResult.Success)
+            throw new InvalidOperationException("ManagedNativeWifi не разобрал текущее подключение: тип BSS, проверка подлинности или шифр ему не известны (" + value.result + ").");
+
+        CurrentConnectionInfo connection = value.connection;
+        return new WifiConnection(
+            connection.Ssid.ToString(),
+            FormatBssid(connection.Bssid),
+            connection.ProfileName,
+            connection.IsSecurityEnabled,
+            connection.AuthenticationAlgorithm.ToString(),
+            connection.CipherAlgorithm.ToString(),
+            connection.SignalQuality,
+            connection.ConnectionMode.ToString());
+    }
+
+    public ConnectedBss? ReadConnectedBss(Guid adapter, string bssid)
+    {
+        (ActionResult result, IEnumerable<BssNetworkInfo> list) = NativeWifi.EnumerateBssNetworks(adapter);
+        if (result != ActionResult.Success)
+            throw new InvalidOperationException("ManagedNativeWifi не вернул список BSS (" + result + ").");
+
+        BssNetworkInfo? bss = list.FirstOrDefault(entry => FormatBssid(entry.Bssid) == bssid);
+        return bss == null ? null : new ConnectedBss(bss.Frequency, bss.Band, bss.Channel, bss.Rssi);
+    }
+
+    private static string FormatBssid(NetworkIdentifier bssid) => BitConverter.ToString(bssid.ToBytes());
 
     private static ParentProcess ReadParent()
     {

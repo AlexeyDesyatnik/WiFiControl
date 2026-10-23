@@ -43,6 +43,17 @@ public class ReportTests
     }
 
     [Fact]
+    public void Windows_error_code_is_taken_from_the_hresult_of_other_exceptions()
+    {
+        var report = new Report();
+        report.Section("Wi-Fi", () => throw new UnauthorizedAccessException("нет доступа"));
+        report.Section("Прокси", () => throw new InvalidOperationException("снаружи"));
+
+        Assert.Contains("  ОШИБКА: System.UnauthorizedAccessException (код 5): нет доступа", report.Lines);
+        Assert.Contains("  ОШИБКА: System.InvalidOperationException: снаружи", report.Lines);
+    }
+
+    [Fact]
     public void Formats_values_for_reading()
     {
         Assert.Equal("(нет)", Report.Format(null));
