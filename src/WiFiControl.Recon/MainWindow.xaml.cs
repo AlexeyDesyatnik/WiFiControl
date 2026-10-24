@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Threading;
 using WiFiControl.Recon.Diagnostics;
 
 namespace WiFiControl.Recon;
@@ -8,6 +9,8 @@ internal partial class MainWindow : Window
 {
     private readonly ReconLog _log;
     private readonly ObservableCollection<Reading> _readings = [];
+    private readonly ObservableCollection<RecordedEvent> _events = [];
+    private IDisposable? _watching;
 
     public MainWindow(ReconLog log)
     {
@@ -15,7 +18,31 @@ internal partial class MainWindow : Window
         InitializeComponent();
         Title += " " + AppInfo.Version;
         ReadingsList.ItemsSource = _readings;
-        Loaded += async (_, _) => await ReadAsync("при запуске");
+        EventsList.ItemsSource = _events;
+
+        Loaded += async (_, _) =>
+        {
+            // Лента ведётся с самого начала: в неё попадает и сканирование первого чтения
+            _log.EventRecorded += OnEventRecorded;
+            _watching = _log.StartWatching();
+            await ReadAsync("при запуске");
+        };
+        Closed += (_, _) =>
+        {
+            _log.EventRecorded -= OnEventRecorded;
+            _watching?.Dispose();
+        };
+    }
+
+    // Приходит из потоков WLAN API, сетевого стека и SystemEvents; окно обновляется, не дожидаясь отрисовки
+    private void OnEventRecorded(RecordedEvent recorded)
+    {
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+        {
+            _events.Add(recorded);
+            EventsHeader.Text = "Лента событий: " + _events.Count;
+            EventsList.ScrollIntoView(recorded);
+        });
     }
 
     private async void OnReadAgain(object sender, RoutedEventArgs e)
@@ -23,7 +50,7 @@ internal partial class MainWindow : Window
         await ReadAsync("по кнопке «Прочитать заново»");
     }
 
-    // Чтение идёт вне потока окна: дальше в нём появятся ожидание сканирования и медленные вызовы WMI
+    // Чтение идёт вне потока окна: в нём ожидание сканирования и медленные вызовы WMI
     private async Task ReadAsync(string occasion)
     {
         ReadAgainButton.IsEnabled = false;

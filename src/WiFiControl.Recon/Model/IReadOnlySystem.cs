@@ -75,6 +75,13 @@ internal interface IReadOnlySystem
 
     /// <summary>Записи о доступе к местоположению для всего компьютера.</summary>
     LocationConsent ReadMachineLocationConsent();
+
+    /// <summary>
+    /// Подписывается на уведомления WLAN (ACM и MSM), смену адресов, сон и выход из сна; освобождение снимает все подписки.
+    /// Отказ одной подписки приходит событием <see cref="EventFailure"/>, остальные работают.
+    /// </summary>
+    /// <param name="onEvent">Вызывается из чужих потоков, в том числе одновременно.</param>
+    IDisposable WatchEvents(Action<SystemEvent> onEvent);
 }
 
 /// <summary>Источник времени; в тестах подменяется.</summary>

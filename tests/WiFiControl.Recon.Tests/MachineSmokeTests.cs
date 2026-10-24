@@ -171,6 +171,46 @@ public class MachineSmokeTests
     }
 
     [Fact]
+    public void Wlan_notifications_reach_the_feed_and_stop_after_disposal()
+    {
+        var system = new WindowsSystem();
+        IReadOnlyList<WifiAdapter> adapters;
+        try
+        {
+            adapters = system.ReadWifiAdapters();
+        }
+        catch (Exception ex) when (IsWlanRefusal(ex))
+        {
+            return;
+        }
+        if (adapters.Count == 0) return;
+
+        var log = new ReconLog(system, new SystemClock(), "тест");
+        using var scanEnded = new ManualResetEventSlim();
+        log.EventRecorded += recorded =>
+        {
+            if (recorded.Text.Contains("WLAN ACM scan_complete (7)") || recorded.Text.Contains("WLAN ACM scan_fail (8)")) scanEnded.Set();
+        };
+
+        IDisposable watching = log.StartWatching();
+        try
+        {
+            // Сканирование ничего не меняет, а уведомление о его конце приходит всегда — им и проверяется подписка
+            system.Scan(adapters[0].Id, TimeSpan.FromSeconds(10));
+            Assert.True(scanEnded.Wait(TimeSpan.FromSeconds(5)), string.Join(Environment.NewLine, log.Events.Select(e => e.Text)));
+            Assert.DoesNotContain(log.Events, e => e.Text.Contains("Не удалось"));
+        }
+        finally
+        {
+            watching.Dispose();
+        }
+
+        int count = log.Events.Count;
+        system.Scan(adapters[0].Id, TimeSpan.FromSeconds(10));
+        Assert.Equal(count, log.Events.Count);
+    }
+
+    [Fact]
     public void Reads_adapters_with_their_ipv4_settings()
     {
         IReadOnlyList<Adapter> adapters = new WindowsSystem().ReadAdapters();

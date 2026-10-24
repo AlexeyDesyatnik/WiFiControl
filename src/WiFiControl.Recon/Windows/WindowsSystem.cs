@@ -173,6 +173,8 @@ internal sealed class WindowsSystem : IReadOnlySystem
 
     public LocationConsent ReadMachineLocationConsent() => LocationReader.ReadMachine();
 
+    public IDisposable WatchEvents(Action<SystemEvent> onEvent) => new EventWatcher(onEvent);
+
     private static string FormatBssid(NetworkIdentifier bssid) => BitConverter.ToString(bssid.ToBytes());
 
     private static ParentProcess ReadParent()

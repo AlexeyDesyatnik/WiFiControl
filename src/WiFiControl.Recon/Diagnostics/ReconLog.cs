@@ -9,14 +9,23 @@ internal sealed record Reading(int Number, string Occasion, DateTime When, IRead
     public string Text => string.Join(Environment.NewLine, Lines);
 }
 
+/// <summary>Событие ленты, уже записанное строками отчёта.</summary>
+internal sealed record RecordedEvent(int Number, DateTime When, IReadOnlyList<string> Lines)
+{
+    public string Text => string.Join(Environment.NewLine, Lines);
+}
+
 /// <summary>
-/// Всё, что разведочная сборка прочитала за запуск. Каждое чтение — отдельный блок со временем;
-/// повторное чтение добавляет блок, а не заменяет прежние.
+/// Всё, что разведочная сборка прочитала и записала за запуск. Каждое чтение — отдельный блок со временем;
+/// повторное чтение добавляет блок, а не заменяет прежние. События идут в ленту по мере прихода.
 /// </summary>
 internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string toolVersion)
 {
     private readonly List<Reading> _readings = [];
     private readonly Lock _readLock = new();
+    private readonly List<RecordedEvent> _events = [];
+    // Wi-Fi-адаптеры последнего чтения: по ним в ленте GUID из уведомления заменяется описанием
+    private volatile IReadOnlyList<WifiAdapter> _knownAdapters = [];
 
     public IReadOnlyList<Reading> Readings
     {
@@ -24,6 +33,83 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
         {
             lock (_readings) return _readings.ToList();
         }
+    }
+
+    public IReadOnlyList<RecordedEvent> Events
+    {
+        get
+        {
+            lock (_events) return _events.ToList();
+        }
+    }
+
+    /// <summary>Новое событие ленты. Вызывается из чужих потоков.</summary>
+    public event Action<RecordedEvent>? EventRecorded;
+
+    /// <summary>Начинает вести ленту; освобождение снимает подписки.</summary>
+    public IDisposable StartWatching() => system.WatchEvents(Record);
+
+    private void Record(SystemEvent systemEvent)
+    {
+        RecordedEvent recorded;
+        lock (_events)
+        {
+            // Время и номер ставятся под блокировкой, чтобы порядок в ленте совпадал с порядком прихода
+            DateTime when = clock.Now;
+            recorded = new RecordedEvent(_events.Count + 1, when, EventLines(when, systemEvent));
+            _events.Add(recorded);
+        }
+        EventRecorded?.Invoke(recorded);
+    }
+
+    private List<string> EventLines(DateTime when, SystemEvent systemEvent)
+    {
+        string stamp = Stamp(when) + "  ";
+        switch (systemEvent)
+        {
+            case WlanNotification wlan:
+                return [stamp + WlanText(wlan)];
+
+            case AddressesChanged addresses:
+                var lines = new List<string> { stamp + "Смена адресов" };
+                if (addresses.WifiAdapters.Count == 0) lines.Add("  Wi-Fi-адаптеров нет");
+                foreach (AdapterAddresses adapter in addresses.WifiAdapters)
+                {
+                    lines.Add("  " + adapter.Name + " (" + adapter.Status + "): адреса " + Report.Format(adapter.Active.Addresses.ToArray())
+                        + "; шлюзы " + Report.Format(adapter.Active.Gateways.ToArray()) + "; DNS " + Report.Format(adapter.Active.Dns.ToArray())
+                        + (adapter.Active.HasConflict ? "; конфликт адресов" : ""));
+                }
+                return lines;
+
+            case PowerModeChanged power:
+                return [stamp + "Питание: " + power.Mode switch
+                {
+                    "Suspend" => "Suspend — уход в сон",
+                    "Resume" => "Resume — выход из сна",
+                    "StatusChange" => "StatusChange — смена состояния питания",
+                    string other => other,
+                }];
+
+            case EventFailure failure:
+                var error = new Report();
+                error.Error(failure.Error);
+                return [stamp + "Не удалось: " + failure.What, .. error.Lines.Select(line => "  " + line)];
+
+            default:
+                return [stamp + systemEvent];
+        }
+    }
+
+    private string WlanText(WlanNotification wlan)
+    {
+        WifiAdapter? adapter = _knownAdapters.FirstOrDefault(a => a.Id == wlan.Adapter);
+        var text = "WLAN " + wlan.Source + " " + wlan.CodeName + " (" + wlan.Code + "), " + (adapter?.Description ?? wlan.Adapter.ToString("B"));
+        if (wlan.Ssid != null) text += ", SSID «" + wlan.Ssid + "»";
+        if (!string.IsNullOrEmpty(wlan.WindowsProfileName)) text += ", профиль сети Windows «" + wlan.WindowsProfileName + "»";
+        if (wlan.Bssid != null) text += ", BSSID " + wlan.Bssid;
+        if (wlan.SignalQuality != null) text += ", сигнал " + wlan.SignalQuality + " %";
+        if (wlan.ReasonCode != null) text += ", причина " + wlan.ReasonCode + (wlan.Reason != null ? " — " + wlan.Reason : "");
+        return text;
     }
 
     public Report BuildReport() => BuildReport(clock.Now);
@@ -39,6 +125,16 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
         IReadOnlyList<Reading> readings = Readings;
         report.Value("Чтений", readings.Count);
         foreach (Reading reading in readings) report.Append(reading.Lines, reading.HasErrors);
+
+        IReadOnlyList<RecordedEvent> events = Events;
+        report.Section("Лента событий", () =>
+        {
+            report.Value("Событий", events.Count);
+            foreach (RecordedEvent recorded in events)
+            {
+                foreach (string line in recorded.Lines) report.Line(line);
+            }
+        });
         return report;
     }
 
@@ -65,6 +161,7 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
                 // null — список не получен: отказ уже записан в разделе адаптеров
                 IReadOnlyList<WifiAdapter>? adapters = null;
                 report.Section("Wi-Fi-адаптеры", () => adapters = WifiAdaptersSection(report));
+                if (adapters != null) _knownAdapters = adapters;
                 report.Section("Текущее подключение", () => CurrentConnectionSection(report, adapters));
                 report.Section("Видимые сети", () => VisibleNetworksSection(report, adapters));
                 report.Section("Профили сетей Windows", () => WindowsProfilesSection(report, adapters));

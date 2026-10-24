@@ -187,6 +187,25 @@ internal sealed class FakeSystem : IReadOnlySystem
         UserLocationFailure != null ? throw UserLocationFailure : userSid == InteractiveUser.Sid ? UserLocation : throw new InvalidOperationException("Нет пользователя " + userSid);
 
     public LocationConsent ReadMachineLocationConsent() => MachineLocationFailure != null ? throw MachineLocationFailure : MachineLocation;
+
+    private Action<SystemEvent>? _onEvent;
+
+    /// <summary>Есть ли действующая подписка на события.</summary>
+    public bool Watching => _onEvent != null;
+
+    public IDisposable WatchEvents(Action<SystemEvent> onEvent)
+    {
+        _onEvent = onEvent;
+        return new Subscription(() => _onEvent = null);
+    }
+
+    /// <summary>Присылает событие так, как его прислала бы Windows; без подписки оно теряется.</summary>
+    public void Raise(SystemEvent systemEvent) => _onEvent?.Invoke(systemEvent);
+
+    private sealed class Subscription(Action unsubscribe) : IDisposable
+    {
+        public void Dispose() => unsubscribe();
+    }
 }
 
 internal sealed class FakeClock : IClock

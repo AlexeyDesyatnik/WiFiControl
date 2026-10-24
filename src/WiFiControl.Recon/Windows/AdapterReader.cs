@@ -75,7 +75,7 @@ internal static class AdapterReader
         };
     }
 
-    private static ActiveIpv4 ReadActive(NetworkInterface item)
+    internal static ActiveIpv4 ReadActive(NetworkInterface item)
     {
         var addresses = new List<string>();
         var gateways = new List<string>();

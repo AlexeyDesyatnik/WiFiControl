@@ -3,15 +3,22 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:ClassModifier="internal"
         Title="WiFiControl — разведка" Width="900" Height="700" MinWidth="500" MinHeight="300">
-    <DockPanel Margin="16">
-        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="2*" MinHeight="80" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" MinHeight="80" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.Row="0" Margin="0,0,0,12">
             <Button x:Name="ReadAgainButton" Content="Прочитать заново" Click="OnReadAgain" Margin="0,0,8,0" />
             <Button x:Name="SaveButton" Content="Сохранить отчёт" Click="OnSave" Style="{DynamicResource AccentButtonStyle}" />
             <TextBlock x:Name="Status" Margin="12,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
         </DockPanel>
 
         <!-- Прочитанное: по блоку на каждое чтение, новые снизу -->
-        <ScrollViewer x:Name="ReadingsScroll" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer x:Name="ReadingsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <ItemsControl x:Name="ReadingsList">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
@@ -25,5 +32,21 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
-    </DockPanel>
+
+        <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch" Margin="0,4" Background="Transparent" />
+
+        <!-- Лента событий: новые снизу, приходят из чужих потоков -->
+        <DockPanel Grid.Row="3">
+            <TextBlock x:Name="EventsHeader" DockPanel.Dock="Top" Text="Лента событий" Margin="0,0,0,6"
+                       FontWeight="SemiBold" />
+            <ListBox x:Name="EventsList" FontFamily="Cascadia Mono, Consolas"
+                     VirtualizingPanel.IsVirtualizing="True" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Text}" />
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+    </Grid>
 </Window>
