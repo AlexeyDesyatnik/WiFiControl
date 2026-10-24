@@ -41,6 +41,16 @@ internal interface IReadOnlySystem
     ProxyPolicy ReadProxyPolicy(string userSid);
 
     ProxySettings ReadWinHttpProxy();
+
+    /// <summary>Интерфейсы IPv4 сетевого стека с их метриками.</summary>
+    IReadOnlyList<IpInterface> ReadIpInterfaces();
+
+    /// <summary>Маршруты по умолчанию (0.0.0.0/0) из таблицы маршрутов IPv4.</summary>
+    IReadOnlyList<Route> ReadDefaultRoutes();
+
+    /// <summary>Маршрут, которым Windows отправила бы трафик на <paramref name="destination"/>. Сам трафик не отправляется.</summary>
+    /// <returns>null, если маршрута к адресу нет.</returns>
+    BestRoute? ReadBestRoute(string destination);
 }
 
 /// <summary>Источник времени; в тестах подменяется.</summary>

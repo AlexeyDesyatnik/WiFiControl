@@ -12,12 +12,13 @@ internal sealed class FakeSystem : IReadOnlySystem
     public LaunchOrigin Launch = new(new ParentProcess(4120, "explorer"), 1388);
 
     public static readonly Guid WifiId = new("b0fbe93a-b7d1-490e-9b93-c44d06b82760");
+    public static readonly Guid EthernetId = new("5d1c0a4e-2f7b-4c1a-9e1d-3b8f6a2c7d40");
 
     public List<WifiAdapter> WifiAdapters = [new(WifiId, "Intel(R) Wi-Fi 6 AX200 160MHz", "Connected")];
 
     public List<NetworkConnection> NetworkConnections =
     [
-        new(new Guid("5d1c0a4e-2f7b-4c1a-9e1d-3b8f6a2c7d40"), "Ethernet", "Realtek PCIe GbE Family Controller", "Down"),
+        new(EthernetId, "Ethernet", "Realtek PCIe GbE Family Controller", "Down"),
         new(WifiId, "Беспроводная сеть", "Intel(R) Wi-Fi 6 AX200 160MHz", "Up"),
     ];
 
@@ -36,7 +37,7 @@ internal sealed class FakeSystem : IReadOnlySystem
     /// <summary>Адаптеры «Сетевых подключений» с настройками IPv4, как их читает код NetSwitch.</summary>
     public List<Adapter> Adapters =
     [
-        new(new Guid("5d1c0a4e-2f7b-4c1a-9e1d-3b8f6a2c7d40"), "Ethernet", "Realtek PCIe GbE Family Controller",
+        new(EthernetId, "Ethernet", "Realtek PCIe GbE Family Controller",
             @"PCI\VEN_10EC&DEV_8168\01", "00-E0-4C-68-01-02", true, AdapterState.NoLink),
         new(WifiId, "Беспроводная сеть", "Intel(R) Wi-Fi 6 AX200 160MHz", @"PCI\VEN_8086&DEV_2723\01", "A4-C3-F0-11-22-33", true, AdapterState.Connected)
         {
@@ -54,6 +55,16 @@ internal sealed class FakeSystem : IReadOnlySystem
 
     public ProxySettings WinHttpProxy = ProxySettings.FromRaw(false, null, null);
 
+    public List<IpInterface> IpInterfaces = [new(EthernetId, 12, 25, true), new(WifiId, 18, 35, true)];
+
+    public List<Route> DefaultRoutes = [new(WifiId, 18, "0.0.0.0/0", "192.168.1.1", 0)];
+
+    /// <summary>Лучший маршрут по адресу назначения; адреса нет в словаре — маршрута к нему нет.</summary>
+    public Dictionary<string, BestRoute> BestRoutes = new()
+    {
+        ["8.8.8.8"] = new(new(WifiId, 18, "0.0.0.0/0", "192.168.1.1", 0), "192.168.1.37"),
+    };
+
     public Exception? WindowsFailure { get; set; }
     public Exception? ProcessFailure { get; set; }
     public Exception? LaunchFailure { get; set; }
@@ -66,6 +77,9 @@ internal sealed class FakeSystem : IReadOnlySystem
     public Exception? SystemProxyFailure { get; set; }
     public Exception? ProxyPolicyFailure { get; set; }
     public Exception? WinHttpProxyFailure { get; set; }
+    public Exception? IpInterfacesFailure { get; set; }
+    public Exception? DefaultRoutesFailure { get; set; }
+    public Exception? BestRouteFailure { get; set; }
 
     public WindowsVersion ReadWindows() => WindowsFailure != null ? throw WindowsFailure : Windows;
 
@@ -95,6 +109,13 @@ internal sealed class FakeSystem : IReadOnlySystem
         ProxyPolicyFailure != null ? throw ProxyPolicyFailure : userSid == InteractiveUser.Sid ? ProxyPolicy : throw new InvalidOperationException("Нет пользователя " + userSid);
 
     public ProxySettings ReadWinHttpProxy() => WinHttpProxyFailure != null ? throw WinHttpProxyFailure : WinHttpProxy;
+
+    public IReadOnlyList<IpInterface> ReadIpInterfaces() => IpInterfacesFailure != null ? throw IpInterfacesFailure : IpInterfaces;
+
+    public IReadOnlyList<Route> ReadDefaultRoutes() => DefaultRoutesFailure != null ? throw DefaultRoutesFailure : DefaultRoutes;
+
+    public BestRoute? ReadBestRoute(string destination) =>
+        BestRouteFailure != null ? throw BestRouteFailure : BestRoutes.GetValueOrDefault(destination);
 }
 
 internal sealed class FakeClock : IClock

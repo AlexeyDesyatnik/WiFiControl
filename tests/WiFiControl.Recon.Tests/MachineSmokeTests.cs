@@ -140,6 +140,43 @@ public class MachineSmokeTests
     }
 
     [Fact]
+    public void Reads_ip_interfaces_of_network_adapters()
+    {
+        var system = new WindowsSystem();
+        IReadOnlyList<IpInterface> interfaces = system.ReadIpInterfaces();
+        IReadOnlyList<Adapter> adapters = system.ReadAdapters();
+
+        Assert.NotEmpty(interfaces);
+        Assert.All(interfaces, ip => Assert.InRange(ip.Metric, 1, 9999));
+        Assert.Equal(interfaces.Count, interfaces.Select(ip => ip.Index).Distinct().Count());
+        // У включённого адаптера «Сетевых подключений» есть интерфейс IPv4, если IPv4 на нём не отключён
+        Assert.Contains(adapters, adapter => interfaces.Any(ip => ip.AdapterId == adapter.Id));
+    }
+
+    [Fact]
+    public void Reads_the_route_to_the_internet()
+    {
+        var system = new WindowsSystem();
+        IReadOnlyList<Route> routes = system.ReadDefaultRoutes();
+        IReadOnlyList<IpInterface> interfaces = system.ReadIpInterfaces();
+
+        BestRoute? best = system.ReadBestRoute("8.8.8.8");
+
+        // Без сети маршрута нет, тогда нет и маршрутов по умолчанию
+        if (best == null)
+        {
+            Assert.Empty(routes);
+            return;
+        }
+        Assert.Contains(interfaces, ip => ip.Index == best.Route.InterfaceIndex && ip.AdapterId == best.Route.AdapterId);
+        // Маршрут по умолчанию может перекрываться более узким маршрутом VPN, тогда выбран не он
+        if (best.Route.Destination == "0.0.0.0/0") Assert.Contains(best.Route, routes);
+        Assert.All(routes, route => Assert.Equal("0.0.0.0/0", route.Destination));
+        Assert.Matches(@"^\d+\.\d+\.\d+\.\d+$", best.SourceAddress);
+        Assert.NotEqual("0.0.0.0", best.SourceAddress);
+    }
+
+    [Fact]
     public void Builds_a_full_report_for_this_machine()
     {
         var log = new ReconLog(new WindowsSystem(), new SystemClock(), "тест");
@@ -150,7 +187,7 @@ public class MachineSmokeTests
         // Отчёт остаётся в каталоге сборки тестов, чтобы его можно было просмотреть глазами
         File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "machine-report.txt"), report.Text);
 
-        string[] sections = ["[Система]", "[Wi-Fi-адаптеры]", "[Текущее подключение]", "[Настройки IPv4]", "[Системный прокси]", "[WinHTTP-прокси]"];
+        string[] sections = ["[Система]", "[Wi-Fi-адаптеры]", "[Текущее подключение]", "[Настройки IPv4]", "[Проводные адаптеры]", "[Маршрут в интернет]", "[Системный прокси]", "[WinHTTP-прокси]"];
         foreach (string section in sections.Concat(["[Windows]", "[Процесс]", "[Запуск]"]))
         {
             Assert.Contains(report.Lines, line => line.Trim() == section);
@@ -161,7 +198,7 @@ public class MachineSmokeTests
         Assert.DoesNotContain(Section(lines, "[Система]"), line => line.Contains("ОШИБКА"));
         Assert.DoesNotContain(lines.SkipWhile(line => line.Trim() != "[Wi-Fi-адаптеры]").TakeWhile(line => line.Trim() != "[Настройки IPv4]"),
             line => line.Contains("ОШИБКА") && !line.Contains("Win32Exception") && !line.Contains("UnauthorizedAccessException"));
-        foreach (string section in new[] { "[Настройки IPv4]", "[Системный прокси]", "[WinHTTP-прокси]" })
+        foreach (string section in new[] { "[Настройки IPv4]", "[Проводные адаптеры]", "[Маршрут в интернет]", "[Системный прокси]", "[WinHTTP-прокси]" })
         {
             Assert.DoesNotContain(Section(lines, section), line => line.Contains("ОШИБКА"));
         }

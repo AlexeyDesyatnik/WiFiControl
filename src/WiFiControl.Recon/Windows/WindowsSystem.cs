@@ -120,6 +120,12 @@ internal sealed class WindowsSystem : IReadOnlySystem
 
     public ProxySettings ReadWinHttpProxy() => ProxyReader.ReadWinHttp();
 
+    public IReadOnlyList<IpInterface> ReadIpInterfaces() => IpHelper.ReadInterfaces();
+
+    public IReadOnlyList<Route> ReadDefaultRoutes() => IpHelper.ReadDefaultRoutes();
+
+    public BestRoute? ReadBestRoute(string destination) => IpHelper.ReadBestRoute(destination);
+
     private static string FormatBssid(NetworkIdentifier bssid) => BitConverter.ToString(bssid.ToBytes());
 
     private static ParentProcess ReadParent()

@@ -66,7 +66,12 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
                 IReadOnlyList<WifiAdapter>? adapters = null;
                 report.Section("Wi-Fi-адаптеры", () => adapters = WifiAdaptersSection(report));
                 report.Section("Текущее подключение", () => CurrentConnectionSection(report, adapters));
-                report.Section("Настройки IPv4", () => Ipv4Section(report, adapters));
+                // Адаптеры и метрики нужны нескольким разделам: читаются один раз, отказ записывается в каждом разделе, где понадобились
+                var networkAdapters = new Lazy<IReadOnlyList<Adapter>>(system.ReadAdapters);
+                var interfaces = new Lazy<IReadOnlyList<IpInterface>>(system.ReadIpInterfaces);
+                report.Section("Настройки IPv4", () => Ipv4Section(report, adapters, networkAdapters));
+                report.Section("Проводные адаптеры", () => WiredSection(report, networkAdapters, interfaces));
+                report.Section("Маршрут в интернет", () => InternetRouteSection(report, networkAdapters, interfaces));
                 report.Section("Системный прокси", () => SystemProxySection(report));
                 report.Section("WinHTTP-прокси", () => ProxyValues(report, system.ReadWinHttpProxy()));
             });
@@ -168,7 +173,7 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
         }
     }
 
-    private void Ipv4Section(Report report, IReadOnlyList<WifiAdapter>? wifiAdapters)
+    private static void Ipv4Section(Report report, IReadOnlyList<WifiAdapter>? wifiAdapters, Lazy<IReadOnlyList<Adapter>> networkAdapters)
     {
         if (wifiAdapters == null)
         {
@@ -181,7 +186,7 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
             return;
         }
 
-        IReadOnlyList<Adapter> adapters = system.ReadAdapters();
+        IReadOnlyList<Adapter> adapters = networkAdapters.Value;
         foreach (WifiAdapter wifi in wifiAdapters)
         {
             report.Section(wifi.Description, () =>
@@ -228,6 +233,104 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
         report.Value("Конфликт адресов", active.HasConflict);
     }
 
+    private static void WiredSection(Report report, Lazy<IReadOnlyList<Adapter>> networkAdapters, Lazy<IReadOnlyList<IpInterface>> interfaces)
+    {
+        // У выключенного адаптера признак Wi-Fi неизвестен, поэтому он попадает сюда с пометкой
+        List<Adapter> wired = networkAdapters.Value.Where(a => a.IsPhysical && !a.IsWireless).ToList();
+        if (wired.Count == 0)
+        {
+            report.Line("Проводных адаптеров нет");
+            return;
+        }
+
+        foreach (Adapter adapter in wired)
+        {
+            report.Section(adapter.Name, () =>
+            {
+                report.Value("Описание", adapter.Description);
+                report.Value("Состояние", adapter.State);
+                if (adapter.State is AdapterState.Disabled or AdapterState.Unavailable)
+                    report.Value("Тип", "не определить — у выключенного адаптера Windows не сообщает, Wi-Fi он или проводной");
+                if (adapter.Active == null) report.Value("Шлюзы", "не прочитаны — нет соединения");
+                else report.Value("Шлюзы", adapter.Active.Gateways.ToArray());
+
+                IpInterface? ip = interfaces.Value.FirstOrDefault(i => i.AdapterId == adapter.Id);
+                report.Value("Метрика интерфейса", ip == null
+                    ? "нет — у адаптера нет интерфейса IPv4"
+                    : ip.Metric + (ip.AutomaticMetric ? ", назначена автоматически" : ", задана вручную"));
+            });
+        }
+    }
+
+    private void InternetRouteSection(Report report, Lazy<IReadOnlyList<Adapter>> networkAdapters, Lazy<IReadOnlyList<IpInterface>> interfaces)
+    {
+        report.Value("Адрес назначения", InternetAddress + " — маршрут выбирает GetBestRoute2 по таблице, трафик не отправляется");
+
+        BestRoute? best = null;
+        bool bestRead = false;
+        report.Section("Выбранный маршрут", () =>
+        {
+            best = system.ReadBestRoute(InternetAddress);
+            bestRead = true;
+            if (best == null)
+            {
+                report.Line("Маршрута нет");
+                return;
+            }
+
+            report.Value("Адаптер", AdapterName(networkAdapters, best.Route));
+            // Не обязательно маршрут по умолчанию: VPN часто добавляет более узкие маршруты, перекрывающие его
+            report.Value("Сеть назначения", best.Route.Destination);
+            report.Value("Шлюз", best.Route.NextHop);
+            report.Value("Адрес отправителя", best.SourceAddress);
+            report.Value("Метрика", RouteMetric(interfaces, best.Route));
+        });
+
+        report.Section("Маршруты по умолчанию", () =>
+        {
+            IReadOnlyList<Route> routes = system.ReadDefaultRoutes();
+            if (routes.Count == 0) report.Line("Маршрутов по умолчанию нет");
+
+            foreach (Route route in routes)
+            {
+                report.Section(AdapterName(networkAdapters, route), () =>
+                {
+                    report.Value("Шлюз", route.NextHop);
+                    report.Value("Выбран", bestRead
+                        ? best?.Route == route
+                        : "не определить — выбранный маршрут не прочитан");
+                    report.Value("Метрика", RouteMetric(interfaces, route));
+                });
+            }
+        });
+    }
+
+    private static string AdapterName(Lazy<IReadOnlyList<Adapter>> networkAdapters, Route route)
+    {
+        string byNumber = "интерфейс " + route.InterfaceIndex + ", " + route.AdapterId.ToString("B");
+        IReadOnlyList<Adapter> adapters;
+        try
+        {
+            adapters = networkAdapters.Value;
+        }
+        catch (Exception)
+        {
+            // Отказ уже записан в разделах адаптеров; маршрут остаётся в отчёте и без имени адаптера
+            return byNumber + " — адаптеры не прочитаны";
+        }
+
+        Adapter? adapter = adapters.FirstOrDefault(a => a.Id == route.AdapterId);
+        return adapter == null ? byNumber + " — в «Сетевых подключениях» такого адаптера нет" : adapter.Name + " (" + adapter.Description + ")";
+    }
+
+    // Windows выбирает маршрут с наименьшей суммой метрик маршрута и интерфейса
+    private static string RouteMetric(Lazy<IReadOnlyList<IpInterface>> interfaces, Route route)
+    {
+        IpInterface? ip = interfaces.Value.FirstOrDefault(i => i.Index == route.InterfaceIndex);
+        if (ip == null) return route.Metric + " маршрута, метрики интерфейса нет — нет интерфейса IPv4 с номером " + route.InterfaceIndex;
+        return route.Metric + " маршрута + " + ip.Metric + " интерфейса = " + (route.Metric + ip.Metric);
+    }
+
     private void SystemProxySection(Report report)
     {
         InteractiveUser user = system.ReadInteractiveUser();
@@ -268,6 +371,9 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
         if (launch.SchedulerProcessId == null) return about + ", а служба Планировщика (Schedule) не запущена";
         return about + ", а служба Планировщика (Schedule) работает в процессе PID " + launch.SchedulerProcessId;
     }
+
+    // Любой публичный адрес: важен только маршрут, который Windows выбрала бы для интернета
+    private const string InternetAddress = "8.8.8.8";
 
     private static string Stamp(DateTime when) => when.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
 }
