@@ -41,6 +41,12 @@ internal interface IReadOnlySystem
     /// <summary>Профили сетей Windows адаптера в порядке предпочтения. Ключ сети не запрашивается.</summary>
     IReadOnlyList<WindowsProfile> ReadWindowsProfiles(Guid adapter);
 
+    /// <summary>Текущий и постоянный MAC-адрес адаптера.</summary>
+    MacAddresses ReadMacAddresses(Guid adapter);
+
+    /// <summary>Записи реестра о MAC-адресе адаптера: службы WLAN и драйвера.</summary>
+    MacRegistry ReadMacRegistry(Guid adapter);
+
     /// <summary>Адаптеры «Сетевых подключений» (<c>Win32_NetworkAdapter</c>) с настроенными и действующими настройками IPv4.</summary>
     IReadOnlyList<Adapter> ReadAdapters();
 

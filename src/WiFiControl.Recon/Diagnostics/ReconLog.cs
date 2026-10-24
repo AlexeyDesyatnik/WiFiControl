@@ -68,6 +68,7 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
                 report.Section("Текущее подключение", () => CurrentConnectionSection(report, adapters));
                 report.Section("Видимые сети", () => VisibleNetworksSection(report, adapters));
                 report.Section("Профили сетей Windows", () => WindowsProfilesSection(report, adapters));
+                report.Section("Случайный MAC-адрес", () => RandomMacSection(report, adapters));
                 // Адаптеры и метрики нужны нескольким разделам: читаются один раз, отказ записывается в каждом разделе, где понадобились
                 var networkAdapters = new Lazy<IReadOnlyList<Adapter>>(system.ReadAdapters);
                 var interfaces = new Lazy<IReadOnlyList<IpInterface>>(system.ReadIpInterfaces);
@@ -292,14 +293,70 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
                             "manual" => "manual — только вручную",
                             string other => other,
                         });
-                        report.Value("Случайный MAC-адрес в XML", profile.MacRandomization == null
-                            ? "элемента MacRandomization нет"
-                            : string.Join(", ", profile.MacRandomization.Select(value => value.Name + " = " + value.Value)));
+                        report.Value("Случайный MAC-адрес в XML", MacRandomizationText(profile));
                     });
                 }
             });
         }
     }
+
+    // Источники признака выводятся рядом и не сводятся в общий вывод: какой из них надёжен, решают прогоны
+    private void RandomMacSection(Report report, IReadOnlyList<WifiAdapter>? adapters)
+    {
+        if (adapters == null)
+        {
+            report.Line("Не прочитано: нет списка Wi-Fi-адаптеров");
+            return;
+        }
+        if (adapters.Count == 0) report.Line("Wi-Fi-адаптеров нет");
+
+        foreach (WifiAdapter adapter in adapters)
+        {
+            report.Section(adapter.Description, () =>
+            {
+                report.Section("Адреса адаптера", () =>
+                {
+                    MacAddresses addresses = system.ReadMacAddresses(adapter.Id);
+                    report.Value("Текущий", addresses.Current);
+                    report.Value("Постоянный", addresses.Permanent);
+                    report.Value("Текущий отличается от постоянного", addresses.Current != addresses.Permanent);
+                    report.Value("Текущий локально администрируемый", MacAddresses.IsLocallyAdministered(addresses.Current)
+                        ? "да — так выглядит случайный адрес"
+                        : "нет");
+                });
+
+                report.Section("Реестр", () =>
+                {
+                    MacRegistry registry = system.ReadMacRegistry(adapter.Id);
+                    report.Value("Раздел службы WLAN", registry.WlanSvcKey ?? "раздела нет");
+                    // По сторонним описаниям так записан общий переключатель «Случайные аппаратные адреса»; не проверено
+                    if (registry.WlanSvcKey != null) report.Value("RandomMacState", registry.RandomMacState ?? "значения нет");
+                    report.Value("Раздел драйвера", registry.DeviceKey ?? "не найден");
+                    if (registry.DeviceKey != null) report.Value("NetworkAddress (адрес, заданный вручную)", registry.NetworkAddress ?? "значения нет");
+                });
+
+                report.Section("XML профиля текущей сети Windows", () =>
+                {
+                    WifiConnection? connection = system.ReadCurrentConnection(adapter.Id);
+                    if (connection == null)
+                    {
+                        report.Line("Не прочитано: адаптер не подключён — текущей сети нет");
+                        return;
+                    }
+
+                    report.Value("Профиль сети Windows", connection.WindowsProfileName);
+                    WindowsProfile? profile = system.ReadWindowsProfiles(adapter.Id).FirstOrDefault(p => p.Name == connection.WindowsProfileName);
+                    report.Value("MacRandomization", profile == null
+                        ? "нет — такого профиля нет в списке профилей сетей Windows"
+                        : MacRandomizationText(profile));
+                });
+            });
+        }
+    }
+
+    private static string MacRandomizationText(WindowsProfile profile) => profile.MacRandomization == null
+        ? "элемента MacRandomization нет"
+        : Report.Format(profile.MacRandomization.Select(value => value.Name + " = " + value.Value).ToArray());
 
     private static void Ipv4Section(Report report, IReadOnlyList<WifiAdapter>? wifiAdapters, Lazy<IReadOnlyList<Adapter>> networkAdapters)
     {

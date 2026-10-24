@@ -149,6 +149,10 @@ internal sealed class WindowsSystem : IReadOnlySystem
             .ToList();
     }
 
+    public MacAddresses ReadMacAddresses(Guid adapter) => IpHelper.ReadMacAddresses(adapter);
+
+    public MacRegistry ReadMacRegistry(Guid adapter) => MacRegistryReader.Read(adapter);
+
     public IReadOnlyList<Adapter> ReadAdapters() => AdapterReader.ReadAll();
 
     public InteractiveUser ReadInteractiveUser() => ProxyReader.ReadInteractiveUser();

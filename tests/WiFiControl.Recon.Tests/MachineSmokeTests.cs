@@ -142,6 +142,35 @@ public class MachineSmokeTests
     }
 
     [Fact]
+    public void Reads_current_and_permanent_mac_address_of_each_wifi_adapter()
+    {
+        var system = new WindowsSystem();
+        IReadOnlyList<WifiAdapter> wifiAdapters;
+        try
+        {
+            wifiAdapters = system.ReadWifiAdapters();
+        }
+        catch (Exception ex) when (IsWlanRefusal(ex))
+        {
+            return;
+        }
+
+        IReadOnlyList<Adapter> adapters = system.ReadAdapters();
+        foreach (WifiAdapter wifi in wifiAdapters)
+        {
+            MacAddresses addresses = system.ReadMacAddresses(wifi.Id);
+
+            Assert.Matches("^([0-9A-F]{2}-){5}[0-9A-F]{2}$", addresses.Current);
+            Assert.Matches("^([0-9A-F]{2}-){5}[0-9A-F]{2}$", addresses.Permanent);
+            // Win32_NetworkAdapter показывает текущий адрес
+            Assert.Equal(adapters.Single(a => a.Id == wifi.Id).MacAddress.Replace(':', '-'), addresses.Current);
+
+            MacRegistry registry = system.ReadMacRegistry(wifi.Id);
+            Assert.NotNull(registry.DeviceKey);
+        }
+    }
+
+    [Fact]
     public void Reads_adapters_with_their_ipv4_settings()
     {
         IReadOnlyList<Adapter> adapters = new WindowsSystem().ReadAdapters();
@@ -264,7 +293,7 @@ public class MachineSmokeTests
         // Отчёт остаётся в каталоге сборки тестов, чтобы его можно было просмотреть глазами
         File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "machine-report.txt"), report.Text);
 
-        string[] sections = ["[Система]", "[Wi-Fi-адаптеры]", "[Текущее подключение]", "[Видимые сети]", "[Профили сетей Windows]", "[Настройки IPv4]", "[Проводные адаптеры]", "[Маршрут в интернет]", "[Системный прокси]", "[WinHTTP-прокси]", "[Доступ к местоположению]"];
+        string[] sections = ["[Система]", "[Wi-Fi-адаптеры]", "[Текущее подключение]", "[Видимые сети]", "[Профили сетей Windows]", "[Случайный MAC-адрес]", "[Настройки IPv4]", "[Проводные адаптеры]", "[Маршрут в интернет]", "[Системный прокси]", "[WinHTTP-прокси]", "[Доступ к местоположению]"];
         foreach (string section in sections.Concat(["[Windows]", "[Процесс]", "[Запуск]"]))
         {
             Assert.Contains(report.Lines, line => line.Trim() == section);

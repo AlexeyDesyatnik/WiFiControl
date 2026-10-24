@@ -67,6 +67,48 @@ internal static class IpHelper
         return new BestRoute(RouteFrom(row), Ipv4Text(source));
     }
 
+    public static MacAddresses ReadMacAddresses(Guid adapter)
+    {
+        Check(ConvertInterfaceGuidToLuid(ref adapter, out ulong luid), "ConvertInterfaceGuidToLuid");
+
+        // MIB_IF_ROW2 велика и полна строк фиксированной длины; нужные поля читаются по смещениям из netioapi.h
+        IntPtr row = Marshal.AllocHGlobal(IfRow2Size);
+        try
+        {
+            Marshal.Copy(new byte[IfRow2Size], 0, row, IfRow2Size);
+            Marshal.WriteInt64(row, (long)luid);
+            Check(GetIfEntry2(row), "GetIfEntry2");
+
+            // Сверка с GUID в строке: если смещения разошлись с заголовками Windows, лучше отказ, чем чужие байты
+            var rowGuid = Marshal.PtrToStructure<Guid>(row + IfRow2InterfaceGuid);
+            if (rowGuid != adapter) throw new InvalidOperationException("GetIfEntry2 вернул строку другого интерфейса: " + rowGuid.ToString("B") + ".");
+
+            int length = Marshal.ReadInt32(row + IfRow2PhysicalAddressLength);
+            if (length is < 0 or > IfMaxPhysAddressLength) throw new InvalidOperationException("GetIfEntry2: длина MAC-адреса " + length + ".");
+            return new MacAddresses(PhysicalAddress(row + IfRow2PhysicalAddress, length), PhysicalAddress(row + IfRow2PermanentPhysicalAddress, length));
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(row);
+        }
+    }
+
+    private static string PhysicalAddress(IntPtr address, int length)
+    {
+        var bytes = new byte[length];
+        Marshal.Copy(address, bytes, 0, length);
+        return BitConverter.ToString(bytes);
+    }
+
+    // MIB_IF_ROW2: NET_LUID, NET_IFINDEX, GUID, WCHAR Alias[257], WCHAR Description[257], ULONG PhysicalAddressLength,
+    // UCHAR PhysicalAddress[32], UCHAR PermanentPhysicalAddress[32], …; всего 1352 байта
+    private const int IfRow2Size = 1352;
+    private const int IfRow2InterfaceGuid = 12;
+    private const int IfRow2PhysicalAddressLength = 1056;
+    private const int IfRow2PhysicalAddress = 1060;
+    private const int IfRow2PermanentPhysicalAddress = 1092;
+    private const int IfMaxPhysAddressLength = 32;
+
     private static Route RouteFrom(IpForwardRow row) =>
         new(AdapterId(row.InterfaceLuid), (int)row.InterfaceIndex,
             Ipv4Text(row.DestinationPrefix.Prefix) + "/" + row.DestinationPrefix.PrefixLength, Ipv4Text(row.NextHop), (int)row.Metric);
@@ -189,6 +231,12 @@ internal static class IpHelper
 
     [DllImport("iphlpapi.dll")]
     private static extern int ConvertInterfaceLuidToGuid(ref ulong luid, out Guid guid);
+
+    [DllImport("iphlpapi.dll")]
+    private static extern int ConvertInterfaceGuidToLuid(ref Guid guid, out ulong luid);
+
+    [DllImport("iphlpapi.dll")]
+    private static extern int GetIfEntry2(IntPtr row);
 
     [DllImport("iphlpapi.dll")]
     private static extern void FreeMibTable(IntPtr memory);

@@ -58,6 +58,14 @@ internal sealed class FakeSystem : IReadOnlySystem
         new("Дача", "AllUser", 1, "Dacha-5G", "manual", null),
     ];
 
+    public MacAddresses MacAddresses = new("A4-C3-F0-11-22-33", "A4-C3-F0-11-22-33");
+
+    public MacRegistry MacRegistry = new(
+        @"HKLM\SOFTWARE\Microsoft\WlanSvc\Interfaces\{b0fbe93a-b7d1-490e-9b93-c44d06b82760}",
+        null,
+        @"HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}\0018",
+        null);
+
     /// <summary>Адаптеры «Сетевых подключений» с настройками IPv4, как их читает код NetSwitch.</summary>
     public List<Adapter> Adapters =
     [
@@ -110,6 +118,8 @@ internal sealed class FakeSystem : IReadOnlySystem
     public Exception? ScanFailure { get; set; }
     public Exception? AvailableNetworksFailure { get; set; }
     public Exception? WindowsProfilesFailure { get; set; }
+    public Exception? MacAddressesFailure { get; set; }
+    public Exception? MacRegistryFailure { get; set; }
     public Exception? AdaptersFailure { get; set; }
     public Exception? InteractiveUserFailure { get; set; }
     public Exception? SystemProxyFailure { get; set; }
@@ -149,6 +159,10 @@ internal sealed class FakeSystem : IReadOnlySystem
 
     public IReadOnlyList<WindowsProfile> ReadWindowsProfiles(Guid adapter) =>
         WindowsProfilesFailure != null ? throw WindowsProfilesFailure : WindowsProfiles;
+
+    public MacAddresses ReadMacAddresses(Guid adapter) => MacAddressesFailure != null ? throw MacAddressesFailure : MacAddresses;
+
+    public MacRegistry ReadMacRegistry(Guid adapter) => MacRegistryFailure != null ? throw MacRegistryFailure : MacRegistry;
 
     public IReadOnlyList<Adapter> ReadAdapters() => AdaptersFailure != null ? throw AdaptersFailure : Adapters;
 
