@@ -100,14 +100,53 @@ internal sealed class WindowsSystem : IReadOnlySystem
             connection.ConnectionMode.ToString());
     }
 
-    public ConnectedBss? ReadConnectedBss(Guid adapter, string bssid)
+    public IReadOnlyList<BssEntry> ReadBssList(Guid adapter)
     {
         (ActionResult result, IEnumerable<BssNetworkInfo> list) = NativeWifi.EnumerateBssNetworks(adapter);
         if (result != ActionResult.Success)
             throw new InvalidOperationException("ManagedNativeWifi не вернул список BSS (" + result + ").");
 
-        BssNetworkInfo? bss = list.FirstOrDefault(entry => FormatBssid(entry.Bssid) == bssid);
-        return bss == null ? null : new ConnectedBss(bss.Frequency, bss.Band, bss.Channel, bss.Rssi);
+        return list
+            .Select(bss => new BssEntry(bss.Ssid.ToString(), FormatBssid(bss.Bssid), bss.Frequency, bss.Band, bss.Channel, bss.Rssi))
+            .ToList();
+    }
+
+    public bool Scan(Guid adapter, TimeSpan timeout)
+    {
+        // Библиотека ждёт уведомления ACM о конце сканирования — успешном или неудачном, их она не различает.
+        // Вызов синхронный: чтение и так идёт вне потока окна
+        IEnumerable<Guid> scanned = NativeWifi.ScanNetworksAsync(ScanMode.OnlySpecified, [adapter], timeout, CancellationToken.None)
+            .GetAwaiter().GetResult();
+        return scanned.Contains(adapter);
+    }
+
+    public IReadOnlyList<AvailableNetwork> ReadAvailableNetworks(Guid adapter)
+    {
+        (ActionResult result, IEnumerable<AvailableNetworkInfo> list) = NativeWifi.EnumerateAvailableNetworks(adapter);
+        if (result != ActionResult.Success)
+            throw new InvalidOperationException("ManagedNativeWifi не вернул список сетей (" + result + ").");
+
+        return list
+            .Select(network => new AvailableNetwork(
+                network.Ssid.ToString(),
+                network.BssType.ToString(),
+                network.IsConnectable,
+                network.SignalQuality,
+                network.IsSecurityEnabled,
+                network.ProfileName,
+                network.AuthenticationAlgorithm.ToString(),
+                network.CipherAlgorithm.ToString()))
+            .ToList();
+    }
+
+    public IReadOnlyList<WindowsProfile> ReadWindowsProfiles(Guid adapter)
+    {
+        // ManagedNativeWifi зовёт WlanGetProfile с нулевыми флагами, без WLAN_PROFILE_GET_PLAINTEXT_KEY:
+        // ключ сети приходит зашифрованным, а дальше этого метода XML всё равно не уходит
+        return NativeWifi.EnumerateProfiles()
+            .Where(profile => profile.InterfaceInfo.Id == adapter)
+            .Select(profile => WindowsProfileXml.Read(profile.Name, profile.ProfileType.ToString(), profile.Position, profile.Document.Xml))
+            .ToList();
     }
 
     public IReadOnlyList<Adapter> ReadAdapters() => AdapterReader.ReadAll();

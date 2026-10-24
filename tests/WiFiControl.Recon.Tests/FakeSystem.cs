@@ -28,11 +28,35 @@ internal sealed class FakeSystem : IReadOnlySystem
         [WifiId] = new("Office", "CC-2D-21-3B-83-96", "Office", true, "RSNA_PSK", "CCMP", 82, "Profile"),
     };
 
-    /// <summary>Список BSS по BSSID; BSSID нет в словаре — точки доступа нет в списке.</summary>
-    public Dictionary<string, ConnectedBss> Bss = new()
-    {
-        ["CC-2D-21-3B-83-96"] = new(5180000, 5f, 36, -61),
-    };
+    /// <summary>Список BSS Wi-Fi-адаптера.</summary>
+    public List<BssEntry> Bss =
+    [
+        new("Office", "CC-2D-21-3B-83-96", 5180000, 5f, 36, -61),
+        new("Office", "CC-2D-21-3B-83-92", 2412000, 2.4f, 1, -50),
+        new("Cafe", "5C-A6-E6-81-69-0B", 2417000, 2.4f, 2, -68),
+    ];
+
+    /// <summary>Чем кончится сканирование: true — пришло уведомление о конце, false — вышло время.</summary>
+    public bool ScanCompletes = true;
+
+    /// <summary>Вызывается во время сканирования, например чтобы сдвинуть подменённые часы.</summary>
+    public Action? OnScan;
+
+    public int Scans { get; private set; }
+
+    /// <summary>Список сетей Wi-Fi-адаптера; у сети с профилем сети Windows — две записи, как отдаёт Windows.</summary>
+    public List<AvailableNetwork> AvailableNetworks =
+    [
+        new("Office", "Infrastructure", true, 80, true, "Office", "RSNA_PSK", "CCMP"),
+        new("Office", "Infrastructure", true, 88, true, "", "RSNA_PSK", "CCMP"),
+        new("Cafe", "Infrastructure", true, 72, false, "", "IEEE80211_Open", "None"),
+    ];
+
+    public List<WindowsProfile> WindowsProfiles =
+    [
+        new("Office", "AllUser", 0, "Office", "auto", [new("enableRandomization", "false"), new("randomizationSeed", "1921880196")]),
+        new("Дача", "AllUser", 1, "Dacha-5G", "manual", null),
+    ];
 
     /// <summary>Адаптеры «Сетевых подключений» с настройками IPv4, как их читает код NetSwitch.</summary>
     public List<Adapter> Adapters =
@@ -83,6 +107,9 @@ internal sealed class FakeSystem : IReadOnlySystem
     public Exception? NetworkConnectionsFailure { get; set; }
     public Exception? ConnectionFailure { get; set; }
     public Exception? BssFailure { get; set; }
+    public Exception? ScanFailure { get; set; }
+    public Exception? AvailableNetworksFailure { get; set; }
+    public Exception? WindowsProfilesFailure { get; set; }
     public Exception? AdaptersFailure { get; set; }
     public Exception? InteractiveUserFailure { get; set; }
     public Exception? SystemProxyFailure { get; set; }
@@ -108,8 +135,20 @@ internal sealed class FakeSystem : IReadOnlySystem
     public WifiConnection? ReadCurrentConnection(Guid adapter) =>
         ConnectionFailure != null ? throw ConnectionFailure : Connections.GetValueOrDefault(adapter);
 
-    public ConnectedBss? ReadConnectedBss(Guid adapter, string bssid) =>
-        BssFailure != null ? throw BssFailure : Bss.GetValueOrDefault(bssid);
+    public IReadOnlyList<BssEntry> ReadBssList(Guid adapter) => BssFailure != null ? throw BssFailure : Bss;
+
+    public bool Scan(Guid adapter, TimeSpan timeout)
+    {
+        Scans++;
+        OnScan?.Invoke();
+        return ScanFailure != null ? throw ScanFailure : ScanCompletes;
+    }
+
+    public IReadOnlyList<AvailableNetwork> ReadAvailableNetworks(Guid adapter) =>
+        AvailableNetworksFailure != null ? throw AvailableNetworksFailure : AvailableNetworks;
+
+    public IReadOnlyList<WindowsProfile> ReadWindowsProfiles(Guid adapter) =>
+        WindowsProfilesFailure != null ? throw WindowsProfilesFailure : WindowsProfiles;
 
     public IReadOnlyList<Adapter> ReadAdapters() => AdaptersFailure != null ? throw AdaptersFailure : Adapters;
 

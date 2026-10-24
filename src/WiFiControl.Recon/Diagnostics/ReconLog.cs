@@ -66,6 +66,8 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
                 IReadOnlyList<WifiAdapter>? adapters = null;
                 report.Section("Wi-Fi-адаптеры", () => adapters = WifiAdaptersSection(report));
                 report.Section("Текущее подключение", () => CurrentConnectionSection(report, adapters));
+                report.Section("Видимые сети", () => VisibleNetworksSection(report, adapters));
+                report.Section("Профили сетей Windows", () => WindowsProfilesSection(report, adapters));
                 // Адаптеры и метрики нужны нескольким разделам: читаются один раз, отказ записывается в каждом разделе, где понадобились
                 var networkAdapters = new Lazy<IReadOnlyList<Adapter>>(system.ReadAdapters);
                 var interfaces = new Lazy<IReadOnlyList<IpInterface>>(system.ReadIpInterfaces);
@@ -161,15 +163,140 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
                 report.Value("Тип защиты", connection.Authentication + ", " + connection.Cipher);
                 report.Value("Сигнал", connection.SignalQuality + " %");
 
-                ConnectedBss? bss = system.ReadConnectedBss(adapter.Id, connection.Bssid);
+                BssEntry? bss = system.ReadBssList(adapter.Id).FirstOrDefault(entry => entry.Bssid == connection.Bssid);
                 if (bss == null)
                 {
                     report.Value("Частота", "нет — точки доступа с этим BSSID нет в списке BSS");
                     return;
                 }
 
-                report.Value("Частота", bss.FrequencyKhz / 1000 + " МГц (" + Report.Format(bss.BandGhz) + " ГГц, канал " + bss.Channel + ")");
+                report.Value("Частота", Frequency(bss));
                 report.Value("RSSI", bss.Rssi + " дБм");
+            });
+        }
+    }
+
+    private void VisibleNetworksSection(Report report, IReadOnlyList<WifiAdapter>? adapters)
+    {
+        if (adapters == null)
+        {
+            report.Line("Не прочитано: нет списка Wi-Fi-адаптеров");
+            return;
+        }
+        if (adapters.Count == 0) report.Line("Wi-Fi-адаптеров нет");
+
+        foreach (WifiAdapter adapter in adapters)
+        {
+            report.Section(adapter.Description, () =>
+            {
+                // Без свежего сканирования список всё равно читается: Windows отдаст то, что видела в прошлый раз
+                report.Section("Сканирование", () => ScanValues(report, adapter));
+
+                // Точки доступа нужны каждой сети: список читается один раз, отказ записывается у каждой сети
+                var bssList = new Lazy<IReadOnlyList<BssEntry>>(() => system.ReadBssList(adapter.Id));
+                List<IGrouping<string, AvailableNetwork>> networks = system.ReadAvailableNetworks(adapter.Id).GroupBy(n => n.Ssid).ToList();
+                report.Value("Сетей", networks.Count);
+
+                foreach (IGrouping<string, AvailableNetwork> network in networks)
+                {
+                    report.Section(NetworkTitle(network.Key), () =>
+                    {
+                        foreach (AvailableNetwork entry in network)
+                        {
+                            report.Value(entry.WindowsProfileName.Length == 0
+                                ? "Без профиля сети Windows"
+                                : "С профилем сети Windows «" + entry.WindowsProfileName + "»", NetworkText(entry));
+                        }
+                        report.Section("Точки доступа", () => BssValues(report, bssList.Value.Where(bss => bss.Ssid == network.Key)));
+                    });
+                }
+
+                // Точки доступа, чьей сети нет в списке, тоже показываются: по ним видно, что список и BSS разошлись
+                IReadOnlyList<BssEntry> bssRead;
+                try
+                {
+                    bssRead = bssList.Value;
+                }
+                catch (Exception) when (networks.Count > 0)
+                {
+                    // Отказ уже записан у каждой сети; без сетей он записывается в разделе адаптера
+                    return;
+                }
+                List<BssEntry> unlisted = bssRead.Where(bss => networks.All(n => n.Key != bss.Ssid)).ToList();
+                if (unlisted.Count > 0) report.Section("Точки доступа без сети в списке", () => BssValues(report, unlisted, withSsid: true));
+            });
+        }
+    }
+
+    private void ScanValues(Report report, WifiAdapter adapter)
+    {
+        report.Value("Ждём уведомления о конце не дольше", Seconds(ScanTimeout));
+        DateTime start = clock.Now;
+        bool completed = system.Scan(adapter.Id, ScanTimeout);
+        string waited = Seconds(clock.Now - start);
+        report.Value("Уведомление о конце", completed ? "пришло через " + waited : "не пришло за " + waited + " — список сетей прочитан без него");
+    }
+
+    private static void BssValues(Report report, IEnumerable<BssEntry> entries, bool withSsid = false)
+    {
+        bool any = false;
+        foreach (BssEntry bss in entries)
+        {
+            any = true;
+            report.Value(bss.Bssid, (withSsid ? NetworkTitle(bss.Ssid) + ", " : "") + Frequency(bss) + ", " + bss.Rssi + " дБм");
+        }
+        if (!any) report.Line("Нет в списке BSS");
+    }
+
+    private static string NetworkTitle(string ssid) => ssid.Length == 0 ? "(скрытая сеть — имя не передаётся)" : ssid;
+
+    private static string NetworkText(AvailableNetwork network)
+    {
+        string text = "сигнал " + network.SignalQuality + " %, "
+            + (network.IsSecurityEnabled ? "защита " : "без защиты: ") + network.Authentication + ", " + network.Cipher;
+        if (network.BssType != "Infrastructure") text += ", тип " + network.BssType;
+        if (!network.IsConnectable) text += ", подключиться нельзя";
+        return text;
+    }
+
+    private static string Frequency(BssEntry bss) =>
+        bss.FrequencyKhz / 1000 + " МГц (" + Report.Format(bss.BandGhz) + " ГГц, канал " + bss.Channel + ")";
+
+    private void WindowsProfilesSection(Report report, IReadOnlyList<WifiAdapter>? adapters)
+    {
+        if (adapters == null)
+        {
+            report.Line("Не прочитано: нет списка Wi-Fi-адаптеров");
+            return;
+        }
+        if (adapters.Count == 0) report.Line("Wi-Fi-адаптеров нет");
+
+        foreach (WifiAdapter adapter in adapters)
+        {
+            report.Section(adapter.Description, () =>
+            {
+                IReadOnlyList<WindowsProfile> profiles = system.ReadWindowsProfiles(adapter.Id);
+                if (profiles.Count == 0) report.Line("Профилей сетей Windows нет");
+
+                foreach (WindowsProfile profile in profiles)
+                {
+                    report.Section(profile.Name, () =>
+                    {
+                        report.Value("SSID", profile.Ssid ?? "элемента SSID нет");
+                        report.Value("Тип", profile.Type);
+                        report.Value("Место в порядке предпочтения", profile.Position + 1);
+                        report.Value("Режим подключения", profile.ConnectionMode switch
+                        {
+                            null => "элемента connectionMode нет",
+                            "auto" => "auto — подключаться автоматически",
+                            "manual" => "manual — только вручную",
+                            string other => other,
+                        });
+                        report.Value("Случайный MAC-адрес в XML", profile.MacRandomization == null
+                            ? "элемента MacRandomization нет"
+                            : string.Join(", ", profile.MacRandomization.Select(value => value.Name + " = " + value.Value)));
+                    });
+                }
             });
         }
     }
@@ -435,5 +562,10 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
 
     // Любой публичный адрес: важен только маршрут, который Windows выбрала бы для интернета
     private const string InternetAddress = "8.8.8.8";
+
+    // Драйверу на сканирование отводится 4 секунды; запас — на медленные драйверы и выход из сна
+    private static readonly TimeSpan ScanTimeout = TimeSpan.FromSeconds(10);
+
+    private static string Seconds(TimeSpan duration) => duration.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture) + " с";
     private static string Stamp(DateTime when) => when.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
 }

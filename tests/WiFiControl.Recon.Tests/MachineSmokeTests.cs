@@ -79,12 +79,65 @@ public class MachineSmokeTests
                 Assert.Matches("^([0-9A-F]{2}-){5}[0-9A-F]{2}$", connection.Bssid);
                 Assert.InRange(connection.SignalQuality, 0, 100);
 
-                ConnectedBss? bss = system.ReadConnectedBss(adapter.Id, connection.Bssid);
+                BssEntry? bss = system.ReadBssList(adapter.Id).FirstOrDefault(entry => entry.Bssid == connection.Bssid);
                 if (bss != null) Assert.InRange(bss.FrequencyKhz, 2_400_000, 7_200_000);
             }
         }
         catch (Exception ex) when (IsWlanRefusal(ex))
         {
+        }
+    }
+
+    [Fact]
+    public void Scans_and_reads_visible_networks_of_each_wifi_adapter()
+    {
+        var system = new WindowsSystem();
+        try
+        {
+            foreach (WifiAdapter adapter in system.ReadWifiAdapters())
+            {
+                // Время вышло — тоже ответ разведки; список читается и без уведомления
+                system.Scan(adapter.Id, TimeSpan.FromSeconds(10));
+                IReadOnlyList<AvailableNetwork> networks = system.ReadAvailableNetworks(adapter.Id);
+                IReadOnlyList<BssEntry> bssList = system.ReadBssList(adapter.Id);
+
+                Assert.All(networks, network => Assert.InRange(network.SignalQuality, 0, 100));
+                Assert.All(bssList, bss =>
+                {
+                    Assert.Matches("^([0-9A-F]{2}-){5}[0-9A-F]{2}$", bss.Bssid);
+                    Assert.InRange(bss.FrequencyKhz, 2_400_000, 7_200_000);
+                });
+            }
+        }
+        catch (Exception ex) when (IsWlanRefusal(ex))
+        {
+        }
+    }
+
+    [Fact]
+    public void Reads_windows_profiles_of_each_wifi_adapter()
+    {
+        var system = new WindowsSystem();
+        IReadOnlyList<WifiAdapter> adapters;
+        try
+        {
+            adapters = system.ReadWifiAdapters();
+        }
+        catch (Exception ex) when (IsWlanRefusal(ex))
+        {
+            return;
+        }
+
+        foreach (WifiAdapter adapter in adapters)
+        {
+            IReadOnlyList<WindowsProfile> profiles = system.ReadWindowsProfiles(adapter.Id);
+
+            Assert.Equal(Enumerable.Range(0, profiles.Count), profiles.Select(profile => profile.Position));
+            Assert.All(profiles, profile =>
+            {
+                Assert.NotEqual("", profile.Name);
+                if (profile.ConnectionMode != null) Assert.Contains(profile.ConnectionMode, new[] { "auto", "manual" });
+            });
         }
     }
 
@@ -211,7 +264,7 @@ public class MachineSmokeTests
         // Отчёт остаётся в каталоге сборки тестов, чтобы его можно было просмотреть глазами
         File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "machine-report.txt"), report.Text);
 
-        string[] sections = ["[Система]", "[Wi-Fi-адаптеры]", "[Текущее подключение]", "[Настройки IPv4]", "[Проводные адаптеры]", "[Маршрут в интернет]", "[Системный прокси]", "[WinHTTP-прокси]", "[Доступ к местоположению]"];
+        string[] sections = ["[Система]", "[Wi-Fi-адаптеры]", "[Текущее подключение]", "[Видимые сети]", "[Профили сетей Windows]", "[Настройки IPv4]", "[Проводные адаптеры]", "[Маршрут в интернет]", "[Системный прокси]", "[WinHTTP-прокси]", "[Доступ к местоположению]"];
         foreach (string section in sections.Concat(["[Windows]", "[Процесс]", "[Запуск]"]))
         {
             Assert.Contains(report.Lines, line => line.Trim() == section);
@@ -222,6 +275,8 @@ public class MachineSmokeTests
         Assert.DoesNotContain(Section(lines, "[Система]"), line => line.Contains("ОШИБКА"));
         Assert.DoesNotContain(lines.SkipWhile(line => line.Trim() != "[Wi-Fi-адаптеры]").TakeWhile(line => line.Trim() != "[Настройки IPv4]"),
             line => line.Contains("ОШИБКА") && !line.Contains("Win32Exception") && !line.Contains("UnauthorizedAccessException"));
+        // Ключ сети из профиля сети Windows в отчёт не попадает ни в каком виде
+        Assert.DoesNotContain(report.Lines, line => line.Contains("keyMaterial", StringComparison.OrdinalIgnoreCase));
         foreach (string section in new[] { "[Настройки IPv4]", "[Проводные адаптеры]", "[Маршрут в интернет]", "[Системный прокси]", "[WinHTTP-прокси]", "[Доступ к местоположению]" })
         {
             Assert.DoesNotContain(Section(lines, section), line => line.Contains("ОШИБКА"));

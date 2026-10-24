@@ -26,8 +26,20 @@ internal interface IReadOnlySystem
     /// <returns>null, если адаптер не подключён.</returns>
     WifiConnection? ReadCurrentConnection(Guid adapter);
 
-    /// <returns>null, если точки доступа с таким BSSID нет в списке BSS адаптера.</returns>
-    ConnectedBss? ReadConnectedBss(Guid adapter, string bssid);
+    /// <summary>Точки доступа, которые адаптер видел при последнем сканировании.</summary>
+    IReadOnlyList<BssEntry> ReadBssList(Guid adapter);
+
+    /// <summary>
+    /// Запускает сканирование (<c>WlanScan</c>) и ждёт уведомления о его конце. Настроек не меняет.
+    /// </summary>
+    /// <returns>false, если уведомление не пришло за <paramref name="timeout"/>.</returns>
+    bool Scan(Guid adapter, TimeSpan timeout);
+
+    /// <summary>Сети, которые видит адаптер, по итогам последнего сканирования.</summary>
+    IReadOnlyList<AvailableNetwork> ReadAvailableNetworks(Guid adapter);
+
+    /// <summary>Профили сетей Windows адаптера в порядке предпочтения. Ключ сети не запрашивается.</summary>
+    IReadOnlyList<WindowsProfile> ReadWindowsProfiles(Guid adapter);
 
     /// <summary>Адаптеры «Сетевых подключений» (<c>Win32_NetworkAdapter</c>) с настроенными и действующими настройками IPv4.</summary>
     IReadOnlyList<Adapter> ReadAdapters();
