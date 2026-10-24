@@ -65,6 +65,17 @@ internal sealed class FakeSystem : IReadOnlySystem
         ["8.8.8.8"] = new(new(WifiId, 18, "0.0.0.0/0", "192.168.1.1", 0), "192.168.1.37"),
     };
 
+    public LocationConsent UserLocation = new(
+        new("Allow", new DateTime(2026, 9, 14, 18, 2, 11, 504)),
+        new("Deny", new DateTime(2026, 10, 20, 8, 40, 3, 12)),
+        [
+            new(@"C:\Program Files\Google\Chrome\Application\chrome.exe", new DateTime(2026, 10, 22, 21, 5, 0, 120), new DateTime(2026, 10, 22, 21, 5, 1, 980)),
+            new(@"C:\Tools\WiFiControl.Recon.exe", new DateTime(2026, 10, 23, 9, 15, 40, 1), null),
+        ],
+        [new("WiFiControl.Recon.exe", 1)]);
+
+    public LocationConsent MachineLocation = new(new("Allow", new DateTime(2026, 9, 14, 18, 2, 11, 486)), new(null, null), [], []);
+
     public Exception? WindowsFailure { get; set; }
     public Exception? ProcessFailure { get; set; }
     public Exception? LaunchFailure { get; set; }
@@ -80,6 +91,8 @@ internal sealed class FakeSystem : IReadOnlySystem
     public Exception? IpInterfacesFailure { get; set; }
     public Exception? DefaultRoutesFailure { get; set; }
     public Exception? BestRouteFailure { get; set; }
+    public Exception? UserLocationFailure { get; set; }
+    public Exception? MachineLocationFailure { get; set; }
 
     public WindowsVersion ReadWindows() => WindowsFailure != null ? throw WindowsFailure : Windows;
 
@@ -116,6 +129,11 @@ internal sealed class FakeSystem : IReadOnlySystem
 
     public BestRoute? ReadBestRoute(string destination) =>
         BestRouteFailure != null ? throw BestRouteFailure : BestRoutes.GetValueOrDefault(destination);
+
+    public LocationConsent ReadUserLocationConsent(string userSid) =>
+        UserLocationFailure != null ? throw UserLocationFailure : userSid == InteractiveUser.Sid ? UserLocation : throw new InvalidOperationException("Нет пользователя " + userSid);
+
+    public LocationConsent ReadMachineLocationConsent() => MachineLocationFailure != null ? throw MachineLocationFailure : MachineLocation;
 }
 
 internal sealed class FakeClock : IClock

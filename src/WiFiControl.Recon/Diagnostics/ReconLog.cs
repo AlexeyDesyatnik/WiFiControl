@@ -74,6 +74,7 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
                 report.Section("Маршрут в интернет", () => InternetRouteSection(report, networkAdapters, interfaces));
                 report.Section("Системный прокси", () => SystemProxySection(report));
                 report.Section("WinHTTP-прокси", () => ProxyValues(report, system.ReadWinHttpProxy()));
+                report.Section("Доступ к местоположению", () => LocationSection(report));
             });
 
             var reading = new Reading(number, occasion, when, report.Lines.ToList(), report.HasErrors);
@@ -360,6 +361,66 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
         report.Value("Не через прокси для локальных адресов", proxy.BypassLocal);
     }
 
+    private void LocationSection(Report report)
+    {
+        report.Value("Раздел реестра", LocationConsent.RegistryKey);
+
+        report.Section("Пользователь", () =>
+        {
+            // Доступ выдаётся пользователю сеанса, даже если права администратора получены под другой учётной записью
+            InteractiveUser user = system.ReadInteractiveUser();
+            report.Value("Учётная запись", user.Name);
+            LocationConsentValues(report, system.ReadUserLocationConsent(user.Sid));
+        });
+
+        report.Section("Компьютер", () => LocationConsentValues(report, system.ReadMachineLocationConsent()));
+    }
+
+    private static void LocationConsentValues(Report report, LocationConsent consent)
+    {
+        report.Value("Общий переключатель (location)", consent.Location == null ? "раздела реестра нет" : SwitchText(consent.Location));
+        report.Value("Доступ к местоположению (NonPackaged)", consent.DesktopApps == null ? "подраздела NonPackaged нет" : SwitchText(consent.DesktopApps));
+
+        report.Section("Классические приложения", () =>
+        {
+            if (consent.DesktopAppUsages.Count == 0) report.Line("Записей нет");
+            foreach (DesktopAppUsage app in consent.DesktopAppUsages)
+            {
+                report.Value(app.Path, UsageText(app));
+            }
+        });
+
+        // Похоже, отсюда видно, приходил ли запрос Windows при первом обращении (сценарий 6); пока не проверено, значение показывается как есть
+        report.Section(@"Запросы Windows (NonPackaged\Executables)", () =>
+        {
+            if (consent.Prompts.Count == 0) report.Line("Записей нет");
+            foreach (LocationPrompt prompt in consent.Prompts)
+            {
+                report.Value(prompt.Executable, prompt.GlobalPromptShown is int shown ? "GlobalPromptShown = " + shown : "значения GlobalPromptShown нет");
+            }
+        });
+    }
+
+    private static string SwitchText(ConsentSwitch consentSwitch)
+    {
+        if (consentSwitch.Value == null) return "значения Value нет";
+
+        string text = consentSwitch.Value switch
+        {
+            "Allow" => "Allow — разрешён",
+            "Deny" => "Deny — запрещён",
+            _ => consentSwitch.Value,
+        };
+        return text + (consentSwitch.LastSet is DateTime lastSet ? ", изменён " + Stamp(lastSet) : ", время изменения не записано");
+    }
+
+    private static string UsageText(DesktopAppUsage app)
+    {
+        if (app.LastUsedStart is not DateTime start) return "обращение не записано";
+        if (app.LastUsedStop is not DateTime stop) return "последнее обращение с " + Stamp(start) + ", конец не записан";
+        return "последнее обращение " + Stamp(start) + " – " + Stamp(stop);
+    }
+
     private static string Basis(LaunchOrigin launch)
     {
         ParentProcess? parent = launch.Parent;
@@ -374,6 +435,5 @@ internal sealed class ReconLog(IReadOnlySystem system, IClock clock, string tool
 
     // Любой публичный адрес: важен только маршрут, который Windows выбрала бы для интернета
     private const string InternetAddress = "8.8.8.8";
-
     private static string Stamp(DateTime when) => when.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
 }

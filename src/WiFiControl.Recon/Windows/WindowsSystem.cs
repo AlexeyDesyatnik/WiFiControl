@@ -126,6 +126,10 @@ internal sealed class WindowsSystem : IReadOnlySystem
 
     public BestRoute? ReadBestRoute(string destination) => IpHelper.ReadBestRoute(destination);
 
+    public LocationConsent ReadUserLocationConsent(string userSid) => LocationReader.ReadUser(userSid);
+
+    public LocationConsent ReadMachineLocationConsent() => LocationReader.ReadMachine();
+
     private static string FormatBssid(NetworkIdentifier bssid) => BitConverter.ToString(bssid.ToBytes());
 
     private static ParentProcess ReadParent()

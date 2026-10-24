@@ -51,6 +51,12 @@ internal interface IReadOnlySystem
     /// <summary>Маршрут, которым Windows отправила бы трафик на <paramref name="destination"/>. Сам трафик не отправляется.</summary>
     /// <returns>null, если маршрута к адресу нет.</returns>
     BestRoute? ReadBestRoute(string destination);
+
+    /// <summary>Записи о доступе к местоположению пользователя: доступ выдаётся ему, а не процессу с правами администратора.</summary>
+    LocationConsent ReadUserLocationConsent(string userSid);
+
+    /// <summary>Записи о доступе к местоположению для всего компьютера.</summary>
+    LocationConsent ReadMachineLocationConsent();
 }
 
 /// <summary>Источник времени; в тестах подменяется.</summary>

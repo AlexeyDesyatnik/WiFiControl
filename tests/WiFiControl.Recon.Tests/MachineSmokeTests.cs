@@ -177,6 +177,30 @@ public class MachineSmokeTests
     }
 
     [Fact]
+    public void Reads_location_access_of_the_user_and_the_computer()
+    {
+        var system = new WindowsSystem();
+        InteractiveUser user = system.ReadInteractiveUser();
+
+        LocationConsent[] consents = [system.ReadUserLocationConsent(user.Sid), system.ReadMachineLocationConsent()];
+
+        foreach (LocationConsent consent in consents)
+        {
+            // Записи классических приложений лежат в подразделе NonPackaged
+            if (consent.DesktopApps == null) Assert.Empty(consent.DesktopAppUsages);
+            Assert.All(consent.DesktopAppUsages, app =>
+            {
+                Assert.True(Path.IsPathFullyQualified(app.Path), app.Path);
+                Assert.DoesNotContain('#', app.Path);
+                if (app.LastUsedStart is DateTime start) Assert.InRange(start, new DateTime(2015, 1, 1), DateTime.Now.AddDays(1));
+            });
+            // Запросы Windows записаны по имени exe, без пути
+            Assert.All(consent.Prompts, prompt => Assert.DoesNotContain('\\', prompt.Executable));
+            if (consent.Location?.LastSet is DateTime lastSet) Assert.InRange(lastSet, new DateTime(2015, 1, 1), DateTime.Now.AddDays(1));
+        }
+    }
+
+    [Fact]
     public void Builds_a_full_report_for_this_machine()
     {
         var log = new ReconLog(new WindowsSystem(), new SystemClock(), "тест");
@@ -187,7 +211,7 @@ public class MachineSmokeTests
         // Отчёт остаётся в каталоге сборки тестов, чтобы его можно было просмотреть глазами
         File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "machine-report.txt"), report.Text);
 
-        string[] sections = ["[Система]", "[Wi-Fi-адаптеры]", "[Текущее подключение]", "[Настройки IPv4]", "[Проводные адаптеры]", "[Маршрут в интернет]", "[Системный прокси]", "[WinHTTP-прокси]"];
+        string[] sections = ["[Система]", "[Wi-Fi-адаптеры]", "[Текущее подключение]", "[Настройки IPv4]", "[Проводные адаптеры]", "[Маршрут в интернет]", "[Системный прокси]", "[WinHTTP-прокси]", "[Доступ к местоположению]"];
         foreach (string section in sections.Concat(["[Windows]", "[Процесс]", "[Запуск]"]))
         {
             Assert.Contains(report.Lines, line => line.Trim() == section);
@@ -198,7 +222,7 @@ public class MachineSmokeTests
         Assert.DoesNotContain(Section(lines, "[Система]"), line => line.Contains("ОШИБКА"));
         Assert.DoesNotContain(lines.SkipWhile(line => line.Trim() != "[Wi-Fi-адаптеры]").TakeWhile(line => line.Trim() != "[Настройки IPv4]"),
             line => line.Contains("ОШИБКА") && !line.Contains("Win32Exception") && !line.Contains("UnauthorizedAccessException"));
-        foreach (string section in new[] { "[Настройки IPv4]", "[Проводные адаптеры]", "[Маршрут в интернет]", "[Системный прокси]", "[WinHTTP-прокси]" })
+        foreach (string section in new[] { "[Настройки IPv4]", "[Проводные адаптеры]", "[Маршрут в интернет]", "[Системный прокси]", "[WinHTTP-прокси]", "[Доступ к местоположению]" })
         {
             Assert.DoesNotContain(Section(lines, section), line => line.Contains("ОШИБКА"));
         }
