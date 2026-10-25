@@ -1,6 +1,6 @@
 ## Project status
 
-Recon build in progress (`docs/recon.md`, issue #1 and its sub-issues); the main tool has no code yet. Start with `docs/roadmap.md`.
+The recon build is done (`docs/recon.md`, issue #1); its manual runs are pending (`docs/recon-checklist.md`). The main tool has no code yet. Start with `docs/roadmap.md`.
 
 ## Language
 
