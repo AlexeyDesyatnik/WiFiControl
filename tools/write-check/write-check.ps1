@@ -27,12 +27,26 @@ param(
     [int]$ConnectTimeout = 30,
     # Сколько следить, не подключилась ли Windows сама после отключения, секунд.
     [int]$WatchAfterDisconnect = 15,
+    # Сколько ждать шлюз по умолчанию после подключения со статическим адресом, секунд.
+    [int]$GatewayTimeout = 20,
+    # Что проверять:
+    #   Full         — оба случая возврата к DHCP, шаги 0–10;
+    #   FastRoute    — статика до подключения, маршрут по умолчанию возвращается сразу после подключения;
+    #   AfterConnect — подключение по DHCP, статика записывается уже на подключённом адаптере;
+    #   OtherNetwork — статика до подключения к сети -Network, когда до этого был DHCP в сети -DhcpNetwork.
+    [ValidateSet('Full', 'FastRoute', 'AfterConnect', 'OtherNetwork')]
+    [string]$Variant = 'Full',
+    # Сеть, в которой адаптер работает по DHCP перед проверкой; по умолчанию та же, что -Network.
+    [string]$DhcpNetwork = '',
+    # Сколько следить за соединением после записи статики, секунд.
+    [int]$WatchSeconds = 45,
     # Только вернуть DHCP и подключиться к сети, без проверки.
     [switch]$Restore
 )
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
+if (-not $DhcpNetwork) { $DhcpNetwork = $Network }
 
 $reportDir = Join-Path $PSScriptRoot 'Отчёты'
 New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
@@ -133,6 +147,10 @@ function Write-Snapshot([string]$Title) {
         if ($routes.Count -eq 0) { $routes = @('(нет)') }
         $lines += "Шлюзы, {0}: {1}" -f $store, ($routes -join '; ')
     }
+    $all = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -PolicyStore ActiveStore -ErrorAction SilentlyContinue |
+        ForEach-Object { '{0} через {1} (метрика {2} + {3})' -f $_.InterfaceAlias, $_.NextHop, $_.RouteMetric, $_.InterfaceMetric })
+    if ($all.Count -eq 0) { $all = @('(нет)') }
+    $lines += "Маршруты по умолчанию, все адаптеры: {0}" -f ($all -join '; ')
     $dns = @(Get-DnsClientServerAddress -InterfaceAlias $Adapter -AddressFamily IPv4 -ErrorAction SilentlyContinue |
         ForEach-Object { $_.ServerAddresses })
     $lines += "DNS действующие: {0}" -f ($dns -join ', ')
@@ -177,9 +195,9 @@ function Disconnect-Wifi {
 }
 
 # Подключение и ожидание адреса. Возвращает адрес (или $null) и время.
-function Connect-Wifi {
+function Connect-Wifi([string]$To = $Network) {
     $start = Get-Date
-    Invoke-Native 'netsh.exe' @('wlan', 'connect', "name=$Network", "interface=$Adapter") | Out-Null
+    Invoke-Native 'netsh.exe' @('wlan', 'connect', "name=$To", "interface=$Adapter") | Out-Null
     $deadline = $start.AddSeconds($ConnectTimeout)
     $upAt = $null; $ip = $null
     while ((Get-Date) -lt $deadline) {
@@ -205,8 +223,11 @@ function Connect-Wifi {
 }
 
 function Test-Reachability([string]$Step) {
-    $gw = Test-Connection -ComputerName $Gateway -Count 2 -Quiet -ErrorAction SilentlyContinue
-    Write-Check $Step "шлюз $Gateway отвечает на ping" $gw ''
+    # Пингуем шлюз действующего маршрута, если он есть, иначе заданный.
+    $route = Get-DefaultRoute
+    $target = if ($route) { $route.NextHop } else { $Gateway }
+    $gw = Test-Connection -ComputerName $target -Count 2 -Quiet -ErrorAction SilentlyContinue
+    Write-Check $Step "шлюз $target отвечает на ping" $gw ''
     $net = $false
     try {
         $tcp = New-Object System.Net.Sockets.TcpClient
@@ -214,6 +235,89 @@ function Test-Reachability([string]$Step) {
         $tcp.Close()
     } catch { $net = $false }
     Write-Check $Step 'интернет (TCP 1.1.1.1:443)' $net ''
+}
+
+function Get-DefaultRoute {
+    Get-NetRoute -InterfaceAlias $Adapter -DestinationPrefix '0.0.0.0/0' -PolicyStore ActiveStore -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+}
+
+# Ждёт маршрут по умолчанию через Wi-Fi-адаптер в действующих настройках.
+function Wait-Gateway([string]$Step, [int]$Seconds) {
+    $start = Get-Date
+    $deadline = $start.AddSeconds($Seconds)
+    $route = Get-DefaultRoute
+    while (-not $route -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+        $route = Get-DefaultRoute
+    }
+    if ($route) {
+        Write-Check $Step 'шлюз по умолчанию в действующих настройках' $true ('{0}, через {1:N1} с' -f $route.NextHop, ((Get-Date) - $start).TotalSeconds)
+    } else {
+        Write-Check $Step 'шлюз по умолчанию в действующих настройках' $false "не появился за $Seconds с"
+    }
+    return [bool]$route
+}
+
+# После подключения со статическим адресом: ждать шлюз, а если его нет —
+# пробовать вернуть: сначала повторной записью настроек IPv4, затем маршрутом напрямую.
+function Test-StaticGateway([string]$Step) {
+    $ok = Wait-Gateway $Step $GatewayTimeout
+    Write-Snapshot 'после ожидания шлюза'
+    Test-Reachability $Step
+    if ($ok) { return }
+
+    Wait-Step "${Step}а" 'Повторно записать настройки IPv4 на подключённом адаптере' 'Тот же netsh set address … gateway=… и set dnsservers, что и до подключения. Так инструмент исправил бы настройки при проверке после переключения.'
+    Set-Static
+    $ok = Wait-Gateway "${Step}а" 10
+    Write-Snapshot 'после повторной записи'
+    Test-Reachability "${Step}а"
+    if ($ok) { return }
+
+    Wait-Step "${Step}б" 'Добавить маршрут по умолчанию в действующие настройки' 'netsh interface ipv4 add route 0.0.0.0/0 … store=active — только в действующие, постоянные не трогаем.'
+    Invoke-Native 'netsh.exe' @('interface', 'ipv4', 'add', 'route', 'prefix=0.0.0.0/0', "interface=$Adapter", "nexthop=$Gateway", 'metric=1', 'store=active') | Out-Null
+    $ok = Wait-Gateway "${Step}б" 10
+    Write-Snapshot 'после добавления маршрута'
+    Test-Reachability "${Step}б"
+}
+
+function Add-DefaultRoute {
+    Invoke-Native 'netsh.exe' @('interface', 'ipv4', 'add', 'route', 'prefix=0.0.0.0/0', "interface=$Adapter", "nexthop=$Gateway", 'metric=1', 'store=active') | Out-Null
+}
+
+# Следит за соединением: пишет каждую смену состояния адаптера и маршрута по умолчанию,
+# в конце проверяет, что соединение не разорвано и маршрут на месте.
+function Watch-Connection([string]$Step, [int]$Seconds) {
+    Write-Log ("Слежу за соединением {0} с: состояние адаптера и маршрут по умолчанию." -f $Seconds)
+    $start = Get-Date
+    $deadline = $start.AddSeconds($Seconds)
+    $last = ''
+    $dropped = $false
+    while ((Get-Date) -lt $deadline) {
+        $status = [string](Get-AdapterInfo).Status
+        $route = Get-DefaultRoute
+        $now = if ($route) { "$status, маршрут через $($route.NextHop)" } else { "$status, маршрута нет" }
+        if ($now -ne $last) {
+            Write-Log ("  +{0:N1} с: {1}" -f ((Get-Date) - $start).TotalSeconds, $now)
+            $last = $now
+        }
+        if ($status -ne 'Up') { $dropped = $true }
+        Start-Sleep -Milliseconds 1000
+    }
+    Write-Check $Step "соединение не разрывалось $Seconds с" (-not $dropped) $last
+    Write-Check $Step 'маршрут по умолчанию на месте в конце' ([bool](Get-DefaultRoute)) ''
+}
+
+# Возврат к исходному состоянию после вариантов: отключение, DHCP, подключение к сети DHCP.
+function Restore-AfterVariant([string]$Step) {
+    Wait-Step $Step 'Вернуть DHCP' "Отключение, обычный netsh source=dhcp (при необходимости запасной путь), подключение к «$DhcpNetwork»."
+    Disconnect-Wifi | Out-Null
+    Restore-Dhcp
+    Write-Snapshot 'после возврата к DHCP'
+    $ip = Connect-Wifi $DhcpNetwork
+    $got = if ($ip) { "$($ip.Address) ($($ip.Origin))" } else { 'адреса нет' }
+    Write-Check $Step 'адрес получен по DHCP' ($ip -and $ip.Origin -eq 'Dhcp') $got
+    Test-Reachability $Step
 }
 
 function Set-Static {
@@ -258,7 +362,7 @@ function Finish {
     Write-Log '===== Итог' 'Magenta'
     Write-Block ($results -join "`n")
     Write-Log ("Отчёт: {0}" -f $report) 'Yellow'
-    Write-Log ("Если Wi-Fi остался без адреса: .\write-check.ps1 -Restore -Adapter '{0}' -Network '{1}'" -f $Adapter, $Network)
+    Write-Log ("Если Wi-Fi остался без адреса: .\write-check.ps1 -Restore -Adapter '{0}' -Network '{1}'" -f $Adapter, $DhcpNetwork)
     exit
 }
 
@@ -273,18 +377,22 @@ if ($Restore) {
     Write-Log '===== Возврат к DHCP' 'Magenta'
     Restore-Dhcp
     Write-Snapshot 'после возврата к DHCP'
-    $ip = Connect-Wifi
+    $ip = Connect-Wifi $DhcpNetwork
     Write-Snapshot 'после подключения'
     Write-Log ("Отчёт: {0}" -f $report) 'Yellow'
     exit
 }
 
 # Шаг 0: исходное состояние и предварительные проверки.
-Wait-Step '0' 'Исходное состояние' "Wi-Fi-адаптер должен быть подключён к сети «$Network» по DHCP. Ничего не меняется."
+Write-Log ("Вариант: {0}; сеть DHCP перед проверкой «{1}»" -f $Variant, $DhcpNetwork)
+Wait-Step '0' 'Исходное состояние' "Wi-Fi-адаптер должен быть подключён к сети «$DhcpNetwork» по DHCP. Ничего не меняется."
 Write-Snapshot 'исходное'
 $ok = $true
-if ((Get-AdapterInfo).Status -ne 'Up' -or (Get-Ssid) -ne $Network) {
-    Write-Log ("Wi-Fi-адаптер не подключён к «{0}». Подключитесь и запустите заново." -f $Network) 'Red'; $ok = $false
+if ((Get-AdapterInfo).Status -ne 'Up' -or (Get-Ssid) -ne $DhcpNetwork) {
+    Write-Log ("Wi-Fi-адаптер не подключён к «{0}». Подключитесь и запустите заново." -f $DhcpNetwork) 'Red'; $ok = $false
+}
+if ($Variant -eq 'OtherNetwork' -and $DhcpNetwork -eq $Network) {
+    Write-Log 'Для OtherNetwork нужны разные сети: -DhcpNetwork (где сейчас DHCP) и -Network (куда подключаемся со статикой).' 'Red'; $ok = $false
 }
 if ((Get-DhcpState 'ActiveStore') -ne 'Enabled' -or (Test-ManualAddress)) {
     Write-Log 'На адаптере сейчас не DHCP. Сценарий в конце вернёт DHCP, и прежние ручные настройки пропадут — перепишите их, прежде чем продолжать.' 'Red'; $ok = $false
@@ -296,7 +404,79 @@ if ($current -and $current.IPAddress -eq $Address) {
     Write-Log "Адрес $Address отвечает на ping — он занят, выберите другой (-Address)." 'Red'; $ok = $false
 }
 if (-not $ok) { Finish }
-Write-Check '0' 'предварительные проверки' $true "подключён к «$Network» по DHCP, адрес $Address свободен"
+Write-Check '0' 'предварительные проверки' $true "подключён к «$DhcpNetwork» по DHCP, адрес $Address свободен"
+
+# Варианты для первого подключения со статическим адресом. В полном прогоне маршрут
+# по умолчанию после такого подключения пропадал, и через ~30 с драйвер рвал соединение.
+
+if ($Variant -eq 'FastRoute' -or $Variant -eq 'OtherNetwork') {
+    Wait-Step '1' 'Отключить Wi-Fi-адаптер от сети' ''
+    if (-not (Disconnect-Wifi)) { Finish }
+
+    Wait-Step '2' 'Статический адрес на отключённом адаптере' "Адрес $Address, шлюз $Gateway, DNS $Dns."
+    Set-Static
+    Write-Snapshot 'после записи статического адреса без соединения'
+
+    if ($Variant -eq 'FastRoute') {
+        $explain = "Подключение, до 3 с ждём маршрут; если его нет — сразу, без вопроса, добавляем его в действующие настройки и $WatchSeconds с следим за соединением."
+    } else {
+        $explain = "Подключение к другой сети, без исправлений: $WatchSeconds с следим, появится ли маршрут и не разорвётся ли соединение."
+    }
+    Wait-Step '3' "Подключиться к «$Network»" $explain
+    $ip = Connect-Wifi
+    $got = if ($ip) { "$($ip.Address) ($($ip.Origin))" } else { 'адреса нет' }
+    Write-Check '3' "действует статический адрес $Address" ($ip -and $ip.Address -eq $Address) $got
+    if ($Variant -eq 'FastRoute') {
+        if (-not (Wait-Gateway '3' 3)) {
+            Add-DefaultRoute
+            Wait-Gateway '3' 2 | Out-Null
+        }
+    }
+    Write-Snapshot 'сразу после подключения'
+    Test-Reachability '3 сразу'
+    Watch-Connection '3' $WatchSeconds
+    Test-Reachability '3 в конце'
+    Write-Snapshot 'в конце наблюдения'
+
+    Restore-AfterVariant '4'
+    Finish
+}
+
+if ($Variant -eq 'AfterConnect') {
+    Wait-Step '1' 'Отключить Wi-Fi-адаптер от сети' ''
+    if (-not (Disconnect-Wifi)) { Finish }
+
+    Wait-Step '2' "Подключиться к «$Network» с DHCP" 'Настройки IPv4 не меняются: адаптер подключается с тем, что было.'
+    $ip = Connect-Wifi
+    $got = if ($ip) { "$($ip.Address) ($($ip.Origin))" } else { 'адреса нет' }
+    Write-Log ("Адрес до записи статики: {0}" -f $got)
+
+    Wait-Step '3' 'Статический адрес на подключённом адаптере' "Как в NetSwitch: netsh set address source=static … на подключённом адаптере, затем $WatchSeconds с следим за соединением."
+    $start = Get-Date
+    Set-Static
+    $deadline = $start.AddSeconds(10)
+    $cur = $null
+    while ((Get-Date) -lt $deadline) {
+        $cur = Get-NetIPAddress -InterfaceAlias $Adapter -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object { $_.IPAddress -eq $Address -and $_.AddressState -eq 'Preferred' } | Select-Object -First 1
+        if ($cur) { break }
+        Start-Sleep -Milliseconds 250
+    }
+    if ($cur) {
+        Write-Check '3' "действует статический адрес $Address" $true ('через {0:N1} с после записи' -f ((Get-Date) - $start).TotalSeconds)
+    } else {
+        Write-Check '3' "действует статический адрес $Address" $false 'не стал действующим за 10 с'
+    }
+    Wait-Gateway '3' 5 | Out-Null
+    Write-Snapshot 'сразу после записи'
+    Test-Reachability '3 сразу'
+    Watch-Connection '3' $WatchSeconds
+    Test-Reachability '3 в конце'
+    Write-Snapshot 'в конце наблюдения'
+
+    Restore-AfterVariant '4'
+    Finish
+}
 
 # Случай А: статический адрес был действующим, затем возврат к DHCP.
 Wait-Step '1' 'Отключить Wi-Fi-адаптер от сети' "Отключение и $WatchAfterDisconnect с наблюдения: не подключится ли Windows сама (ADR 0004, шаг 1)."
@@ -311,12 +491,12 @@ Write-Snapshot 'после записи статического адреса б
 Write-Check '2' 'адрес записан как ручной' (Test-ManualAddress) ("DisableDhcpOnConnect = {0}, DHCP постоянные = {1}" -f (Get-RegValue 'DisableDhcpOnConnect'), (Get-DhcpState 'PersistentStore'))
 Write-Check '2' 'адаптер остался отключённым' ((Get-AdapterInfo).Status -ne 'Up') ''
 
-Wait-Step '3' "Подключиться к «$Network»" 'Ожидается статический адрес, шлюз и интернет (ADR 0004, шаг 3).'
+Wait-Step '3' "Подключиться к «$Network»" "Ожидается статический адрес, затем до $GatewayTimeout с ждём шлюз по умолчанию (ADR 0004, шаг 3). Если шлюза не будет — шаги 3а и 3б пробуют его вернуть."
 $ip = Connect-Wifi
-Write-Snapshot 'после подключения со статическим адресом'
+Write-Snapshot 'сразу после подключения со статическим адресом'
 $got = if ($ip) { "$($ip.Address) ($($ip.Origin))" } else { 'адреса нет' }
 Write-Check '3' "действует статический адрес $Address" ($ip -and $ip.Address -eq $Address) $got
-Test-Reachability '3'
+Test-StaticGateway '3'
 
 Wait-Step '4' 'Отключить от сети' ''
 $stayed = Disconnect-Wifi
