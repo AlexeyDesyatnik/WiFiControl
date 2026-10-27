@@ -12,9 +12,9 @@
 
 Итоги — там же и в Consequences [ADR 0003](adr/0003-settings-written-as-in-netswitch.md) и [ADR 0004](adr/0004-ipv4-before-connect.md): запись работает как в NetSwitch, но после первого подключения со статическим адресом маршрут по умолчанию нужно проверять и при необходимости возвращать.
 
-## 2. Ядро
+## 2. Ядро — сделано
 
-Решения и границы этапа — в [issue #10](https://github.com/AlexeyDesyatnik/WiFiControl/issues/10).
+Решения и границы этапа — в [issue #10](https://github.com/AlexeyDesyatnik/WiFiControl/issues/10), работа — в подзадачах #11–#17. Итог — библиотека `WiFiControl.Core` с тестами; окна и Wi-Fi в ней нет.
 
 - Решение, проекты, сборка и тесты в GitHub Actions — по образцу NetSwitch.
 - Перенос из NetSwitch: разбор и проверка адресов, настройки прокси, netsh и возврат к DHCP, запись прокси, применение по шагам с откатом, `INetworkSystem` с подменой в тестах, атомарная запись JSON.

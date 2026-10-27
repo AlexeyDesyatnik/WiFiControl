@@ -1,6 +1,6 @@
 ## Project status
 
-The recon build is done (`docs/recon.md`, issue #1); its manual runs are pending (`docs/recon-checklist.md`). The main tool is in stage 2: the core library (issue #10). Start with `docs/roadmap.md`.
+The recon build is done (`docs/recon.md`, issue #1); its manual runs are pending (`docs/recon-checklist.md`). The core library is done (stage 2, issue #10). The main tool is in stage 3: the window and switching. Start with `docs/roadmap.md`.
 
 ## Language
 
