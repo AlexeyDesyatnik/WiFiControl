@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Ядро без интерфейса пользователя: ни WPF, ни WinForms, см. docs/adr/0002 -->
+  <PropertyGroup>
+    <RootNamespace>WiFiControl.Core</RootNamespace>
+    <AssemblyName>WiFiControl.Core</AssemblyName>
+  </PropertyGroup>
+
+</Project>

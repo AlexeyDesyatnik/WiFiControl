@@ -1,6 +1,6 @@
 ## Project status
 
-The recon build is done (`docs/recon.md`, issue #1); its manual runs are pending (`docs/recon-checklist.md`). The main tool has no code yet. Start with `docs/roadmap.md`.
+The recon build is done (`docs/recon.md`, issue #1); its manual runs are pending (`docs/recon-checklist.md`). The main tool is in stage 2: the core library (issue #10). Start with `docs/roadmap.md`.
 
 ## Language
 
@@ -22,7 +22,12 @@ Requires .NET SDK 10 on Windows.
 - Test: `dotnet test WiFiControl.sln`.
 - Tests marked `[Trait("Category", "Machine")]` read the machine they run on: they change nothing and need no admin rights. `MachineSmokeTests` leaves `machine-report.txt` in the test build directory (`artifacts/bin/WiFiControl.Recon.Tests/debug/`). To skip them: `dotnet test WiFiControl.sln --filter "Category!=Machine"`.
 
-Projects: `src/WiFiControl.Recon` (the recon build, WPF) and `tests/WiFiControl.Recon.Tests` (xUnit). All Windows access goes through `IReadOnlySystem`; tests use `FakeSystem` and `FakeClock`.
+Projects:
+
+- `src/WiFiControl.Core` (the core library, no WPF or WinForms, public types) and `tests/WiFiControl.Core.Tests` (xUnit).
+- `src/WiFiControl.Recon` (the recon build, WPF) and `tests/WiFiControl.Recon.Tests` (xUnit). All Windows access goes through `IReadOnlySystem`; tests use `FakeSystem` and `FakeClock`. The recon build shares no code with the core.
+
+CI: `.github/workflows/build.yml` builds in Release and runs tests with `Category!=Machine` on push to `main` and on pull requests.
 
 ## Agent skills
 
