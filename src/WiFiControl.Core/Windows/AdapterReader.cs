@@ -38,6 +38,28 @@ internal static class AdapterReader
         return adapters;
     }
 
+    /// <summary>Состояние одного адаптера прямо сейчас; null, если адаптер не найден.</summary>
+    public static AdapterState? ReadState(string adapterId)
+    {
+        foreach (WmiRow row in Wmi.Query(AdaptersQuery + " AND GUID = '" + QueryId(adapterId) + "'"))
+        {
+            return FromWmi(row).State;
+        }
+        return null;
+    }
+
+    /// <summary>Выключенных адаптеров в сетевом стеке нет вовсе.</summary>
+    public static bool IsInStack(string adapterId)
+    {
+        return StackInterfaces().ContainsKey(adapterId);
+    }
+
+    /// <summary>Идентификатор уходит в текст WMI-запроса, поэтому сначала убеждаемся, что это именно GUID.</summary>
+    public static string QueryId(string adapterId)
+    {
+        return new Guid(adapterId).ToString("B").ToUpperInvariant();
+    }
+
     private static Dictionary<string, NetworkInterface> StackInterfaces()
     {
         var interfaces = new Dictionary<string, NetworkInterface>(StringComparer.OrdinalIgnoreCase);

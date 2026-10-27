@@ -22,4 +22,20 @@ public class MachineSmokeTests
             Assert.StartsWith("{", adapter.Id);
         });
     }
+
+    [Fact]
+    public async Task Reads_state_of_one_adapter_as_in_the_full_list()
+    {
+        Adapter adapter = (await new WindowsNetworkSystem().ReadAdaptersAsync(CancellationToken.None))[0];
+
+        Assert.Equal(adapter.State, AdapterReader.ReadState(adapter.Id));
+    }
+
+    [Fact]
+    public async Task Runs_netsh_hidden_and_reads_its_answer()
+    {
+        // Команда только показывает интерфейсы и ничего не меняет
+        Assert.Null(await Netsh.RunAsync("interface ipv4 show interfaces", CancellationToken.None));
+        Assert.NotNull(await Netsh.RunAsync("interface ipv4 show nosuchthing", CancellationToken.None));
+    }
 }
