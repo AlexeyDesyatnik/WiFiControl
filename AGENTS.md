@@ -35,6 +35,11 @@ CI: `.github/workflows/build.yml` builds in Release and runs tests with `Categor
 
 Issues live in GitHub Issues (`AlexeyDesyatnik/WiFiControl`), managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
+Finishing an issue, in this order:
+
+1. After pushing to `main`, wait for the CI run of that commit (`gh run list --commit <sha>`, then `gh run watch <id> --exit-status`). Work goes straight to `main` without pull requests, so nothing else watches CI. If it fails, fix it first.
+2. Only then close the issue or move on. When closing, tick every met acceptance criterion in the issue body itself (`gh issue edit --body-file`), not only in a comment: the body shows progress on the issue and in the parent's sub-issues. Leave unmet ones unticked and say why.
+
 ### Domain docs
 
 Single-context: one `GLOSSARY.md` at the repo root and ADRs in `docs/adr/`. See `docs/agents/domain.md`.
