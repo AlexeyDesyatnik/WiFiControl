@@ -61,7 +61,7 @@ public sealed class WindowsNetworkSystem : INetworkSystem
                 ? string.Join(" ", failures)
                 : "Windows приняла команды, но настройки адаптера не совпали с заданными.");
         }
-        catch (Exception e) when (e is ManagementException or COMException or SecurityException
+        catch (Exception e) when (e is ManagementException or COMException or NetworkInformationException or SecurityException
                                       or UnauthorizedAccessException or IOException
                                       // Свойство WMI с неожиданным типом или значением, идентификатор адаптера не GUID
                                       or FormatException or InvalidCastException or OverflowException)

@@ -116,6 +116,8 @@ internal static class Netsh
             catch (OperationCanceledException)
             {
                 Stop(process);
+                // Чтение потоков завершится вместе с процессом; дожидаемся его, чтобы сбой чтения не остался незамеченным
+                await Task.WhenAll(output, error).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
                 return "netsh не завершился за " + Timeout.TotalSeconds.ToString(CultureInfo.InvariantCulture) + " секунд.";
             }

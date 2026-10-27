@@ -16,7 +16,8 @@ internal static class AdapterSwitch
         await Task.Run(() => InvokeEnable(adapterId, adapterName), cancellationToken).ConfigureAwait(false);
 
         DateTime deadline = DateTime.UtcNow + Timeout;
-        while (!AdapterReader.IsInStack(adapterId))
+        // Опрос сетевого стека тоже бывает долгим, поэтому и он уходит с вызывающего потока
+        while (!await Task.Run(() => AdapterReader.IsInStack(adapterId), cancellationToken).ConfigureAwait(false))
         {
             if (DateTime.UtcNow >= deadline)
             {
