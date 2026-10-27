@@ -27,9 +27,15 @@ public static class StepRunner
         {
             throw;
         }
-        catch (Exception e)
+        // Объяснение по-русски система даёт в InvalidOperationException (см. INetworkSystem)
+        catch (InvalidOperationException e)
         {
             return new StepResult(title, e.Message);
+        }
+        // Остальное — ошибка в коде: человеку — русское начало, для разбора — тип и исходный текст
+        catch (Exception e)
+        {
+            return new StepResult(title, "Непредвиденная ошибка (" + e.GetType().Name + "): " + e.Message);
         }
     }
 }

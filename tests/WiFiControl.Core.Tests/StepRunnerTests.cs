@@ -23,4 +23,12 @@ public class StepRunnerTests
         Assert.True(second.Ok);
         Assert.Null(second.Error);
     }
+
+    [Fact]
+    public async Task Unexpected_exception_is_reported_in_russian_with_its_details()
+    {
+        StepResult result = await StepRunner.RunAsync("Шаг", _ => throw new ArgumentException("Value cannot be empty."), CancellationToken.None);
+
+        Assert.Equal("Непредвиденная ошибка (ArgumentException): Value cannot be empty.", result.Error);
+    }
 }
