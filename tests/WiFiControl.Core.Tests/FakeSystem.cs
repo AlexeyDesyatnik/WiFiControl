@@ -17,6 +17,16 @@ internal sealed class FakeSystem : INetworkSystem
 
     public Exception? Ipv4Failure { get; set; }
 
+    public SystemProxyState SystemProxy { get; set; } = new();
+
+    public ProxySettings WinHttp { get; set; } = new();
+
+    public Exception? ProxyReadFailure { get; set; }
+
+    public Exception? SystemProxyFailure { get; set; }
+
+    public Exception? WinHttpFailure { get; set; }
+
     public static Adapter WiFi(AdapterState state = AdapterState.NoLink)
     {
         return new Adapter
@@ -55,5 +65,45 @@ internal sealed class FakeSystem : INetworkSystem
         Calls.Add("ipv4 " + adapter.Name);
         if (Ipv4Failure != null) throw Ipv4Failure;
         Adapters.Single(candidate => candidate.Id == adapter.Id).Configured = settings.Clone();
+    }
+
+    public async Task<ProxyState> ReadProxyAsync(CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (ProxyReadFailure != null) throw ProxyReadFailure;
+        // Как Windows, отдаёт исключения строкой: флажки получаются только из неё
+        return new ProxyState(Reread(SystemProxy), Reread(WinHttp));
+    }
+
+    public async Task WriteSystemProxyAsync(SystemProxyState state, CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        cancellationToken.ThrowIfCancellationRequested();
+
+        Calls.Add("system proxy");
+        if (SystemProxyFailure != null) throw SystemProxyFailure;
+        SystemProxy = Reread(state);
+    }
+
+    public async Task WriteWinHttpProxyAsync(ProxySettings settings, CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        cancellationToken.ThrowIfCancellationRequested();
+
+        Calls.Add("winhttp");
+        if (WinHttpFailure != null) throw WinHttpFailure;
+        WinHttp = Reread(settings);
+    }
+
+    private static ProxySettings Reread(ProxySettings settings)
+    {
+        return ProxySettings.FromRaw(settings.Enabled, settings.Server, settings.ToBypassList());
+    }
+
+    private static SystemProxyState Reread(SystemProxyState state)
+    {
+        return new SystemProxyState { Settings = Reread(state.Settings), AutoDetect = state.AutoDetect, AutoConfigUrl = state.AutoConfigUrl };
     }
 }

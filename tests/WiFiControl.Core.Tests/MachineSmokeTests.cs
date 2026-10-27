@@ -32,6 +32,15 @@ public class MachineSmokeTests
     }
 
     [Fact]
+    public async Task Reads_proxy_of_this_machine()
+    {
+        ProxyState state = await new WindowsNetworkSystem().ReadProxyAsync(CancellationToken.None);
+
+        // WinHTTP отдаёт сервер только вместе с признаком «через прокси»
+        if (!state.WinHttp.Enabled) Assert.Equal("", state.WinHttp.Server);
+    }
+
+    [Fact]
     public async Task Runs_netsh_hidden_and_reads_its_answer()
     {
         // Команда только показывает интерфейсы и ничего не меняет

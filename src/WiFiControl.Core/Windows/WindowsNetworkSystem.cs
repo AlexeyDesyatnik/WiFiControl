@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Management;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
@@ -68,6 +69,51 @@ public sealed class WindowsNetworkSystem : INetworkSystem
         {
             throw new InvalidOperationException("Windows не дала записать настройки IPv4 адаптера «" + adapter.Name + "»: " + e.Message, e);
         }
+    }
+
+    public Task<ProxyState> ReadProxyAsync(CancellationToken cancellationToken)
+    {
+        return Task.Run(() =>
+        {
+            try
+            {
+                return new ProxyState(ProxyRegistry.ReadSystemProxy(), ProxyRegistry.ReadWinHttp());
+            }
+            catch (Exception e) when (e is Win32Exception or SecurityException or UnauthorizedAccessException or IOException or FormatException)
+            {
+                throw new InvalidOperationException("Windows не отдала настройки прокси: " + e.Message, e);
+            }
+        }, cancellationToken);
+    }
+
+    public Task WriteSystemProxyAsync(SystemProxyState state, CancellationToken cancellationToken)
+    {
+        return Task.Run(() =>
+        {
+            try
+            {
+                ProxyRegistry.WriteSystemProxy(state);
+            }
+            catch (Exception e) when (e is SecurityException or UnauthorizedAccessException or IOException)
+            {
+                throw new InvalidOperationException("Windows не дала записать системный прокси: " + e.Message, e);
+            }
+        }, cancellationToken);
+    }
+
+    public Task WriteWinHttpProxyAsync(ProxySettings settings, CancellationToken cancellationToken)
+    {
+        return Task.Run(() =>
+        {
+            try
+            {
+                ProxyRegistry.WriteWinHttp(settings);
+            }
+            catch (Exception e) when (e is Win32Exception or SecurityException or UnauthorizedAccessException or IOException)
+            {
+                throw new InvalidOperationException("Windows не дала записать WinHTTP-прокси: " + e.Message, e);
+            }
+        }, cancellationToken);
     }
 
     private static async Task ReturnToDhcpAsync(Adapter adapter, List<string> failures, CancellationToken cancellationToken)

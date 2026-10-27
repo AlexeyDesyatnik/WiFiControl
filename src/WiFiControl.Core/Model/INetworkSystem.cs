@@ -15,4 +15,16 @@ public interface INetworkSystem
     /// прочитано с адаптера. Выключенный адаптер при этом включается: иначе записать нельзя.
     /// </summary>
     Task WriteIpv4Async(Adapter adapter, Ipv4Settings settings, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Системный прокси того, кто запустил инструмент, и WinHTTP-прокси. Полный набор исключений частных сетей
+    /// читается как флажок «Не через прокси для частных сетей».
+    /// </summary>
+    Task<ProxyState> ReadProxyAsync(CancellationToken cancellationToken);
+
+    /// <summary>Записывает системный прокси целиком, вместе с автоопределением и сценарием, и сообщает о смене запущенным программам.</summary>
+    Task WriteSystemProxyAsync(SystemProxyState state, CancellationToken cancellationToken);
+
+    /// <summary>Записывает WinHTTP-прокси; выключенный прокси — это «напрямую».</summary>
+    Task WriteWinHttpProxyAsync(ProxySettings settings, CancellationToken cancellationToken);
 }
