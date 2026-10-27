@@ -1,0 +1,110 @@
+using Microsoft.Win32;
+using WiFiControl.Core.Model;
+
+namespace WiFiControl.Core.Windows;
+
+// Перенесено из NetSwitch
+
+/// <summary>Значения IPv4 адаптера в том виде, в каком они лежат в реестре.</summary>
+internal sealed class TcpipInterfaceValues
+{
+    public int? EnableDhcp { get; set; }
+    public int? DisableDhcpOnConnect { get; set; }
+    public string[] IpAddress { get; set; } = [];
+    public string[] SubnetMask { get; set; } = [];
+    public string[] DefaultGateway { get; set; } = [];
+    public string NameServer { get; set; } = "";
+}
+
+/// <summary>
+/// Настроенное на адаптере хранится в реестре и доступно всегда. WMI и сетевой стек отдают
+/// настройки только пока адаптер включён и есть соединение.
+/// </summary>
+internal static class TcpipRegistry
+{
+    public const string InterfacesKey = @"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces";
+
+    public static TcpipInterfaceValues? Read(string adapterId)
+    {
+        using RegistryKey? key = Registry.LocalMachine.OpenSubKey(InterfacesKey + "\\" + adapterId);
+        if (key == null) return null;
+
+        return new TcpipInterfaceValues
+        {
+            EnableDhcp = Number(key.GetValue("EnableDHCP")),
+            DisableDhcpOnConnect = Number(key.GetValue("DisableDhcpOnConnect")),
+            IpAddress = Strings(key.GetValue("IPAddress")),
+            SubnetMask = Strings(key.GetValue("SubnetMask")),
+            DefaultGateway = Strings(key.GetValue("DefaultGateway")),
+            NameServer = key.GetValue("NameServer") as string ?? ""
+        };
+    }
+
+    /// <summary>Настроенное на адаптере; у адаптера без раздела в реестре всё автоматически.</summary>
+    public static Ipv4Settings ReadSettings(string adapterId, AdapterState state)
+    {
+        return ToSettings(Read(adapterId) ?? new TcpipInterfaceValues(), state);
+    }
+
+    /// <param name="state">Без соединения признак «автоматически» в реестре не окончательный.</param>
+    public static Ipv4Settings ToSettings(TcpipInterfaceValues values, AdapterState state)
+    {
+        // Без соединения Windows записывает ручные настройки, но EnableDHCP не сбрасывает
+        // до подключения: о том, что адрес задан вручную, говорит только DisableDhcpOnConnect.
+        // Флагу верим и без адреса: при подключении Windows по нему выключит DHCP
+        bool manualPending = state != AdapterState.Connected && values.DisableDhcpOnConnect == 1;
+
+        // Без явного запрета Windows получает адрес автоматически
+        var settings = new Ipv4Settings { AutoAddress = values.EnableDhcp != 0 && !manualPending };
+
+        if (!settings.AutoAddress)
+        {
+            for (int i = 0; i < values.IpAddress.Length; i++)
+            {
+                if (IsBlank(values.IpAddress[i])) continue;
+
+                settings.Address = values.IpAddress[i];
+                settings.Mask = i < values.SubnetMask.Length ? values.SubnetMask[i] : "";
+                break;
+            }
+            foreach (string gateway in values.DefaultGateway)
+            {
+                if (IsBlank(gateway)) continue;
+
+                settings.Gateway = gateway;
+                break;
+            }
+        }
+
+        // При адресе вручную Windows не берёт DNS автоматически: пустой список значит «DNS нет»
+        settings.Dns.AddRange(Split(values.NameServer));
+        settings.AutoDns = settings.AutoAddress && settings.Dns.Count == 0;
+        return settings;
+    }
+
+    internal static bool IsBlank(string address)
+    {
+        return address.Trim().Length == 0 || address.Trim() == "0.0.0.0";
+    }
+
+    private static int? Number(object? value)
+    {
+        return value is int number ? number : null;
+    }
+
+    // Windows разных версий пишет списки то многострочным значением, то одной строкой
+    private static string[] Strings(object? value)
+    {
+        return value switch
+        {
+            string[] many => many,
+            string one => Split(one),
+            _ => []
+        };
+    }
+
+    private static string[] Split(string list)
+    {
+        return list.Split([',', ' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
+    }
+}
