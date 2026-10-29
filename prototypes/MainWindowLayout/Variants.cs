@@ -14,6 +14,7 @@ static class Variants
     public static readonly Variant[] All =
     [
         new("A", "Карточка сверху, строки раскрываются", 600, 780, BuildA),
+        new("A2", "A, компактнее", 440, 760, BuildA2),
         new("B", "Узкое, как меню Wi-Fi в Windows", 400, 780, BuildB),
         new("C", "Таблица и панель подробностей", 1000, 680, BuildC),
     ];
@@ -149,6 +150,128 @@ static class Variants
     {
         DockPanel.SetDock(e, Dock.Top);
         root.Children.Add(e);
+    }
+
+    // ---------- A2: та же идея, что у A, но плотнее, ближе к B ----------
+    // Без заголовка, служебные кнопки значками; «Сейчас» в три строки; полосы проблем ниже; строки списка в одну линию
+
+    static UIElement BuildA2(Scenario s)
+    {
+        var root = new DockPanel { Margin = new Thickness(12, 10, 12, 68) };
+
+        var bar = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+        var tools = new StackPanel { Orientation = Orientation.Horizontal };
+        var refresh = IconButton("", "Обновить");
+        refresh.Margin = new Thickness(6, 0, 0, 0);
+        tools.Children.Add(refresh);
+        var prof = IconButton("", "Профили и привязки…", s.CanEdit);
+        prof.Margin = new Thickness(6, 0, 0, 0);
+        tools.Children.Add(prof);
+        DockPanel.SetDock(tools, Dock.Right);
+        bar.Children.Add(tools);
+        if (s.Adapters.Length > 1) { var a = AdapterCombo(s, double.NaN); bar.Children.Add(a); }
+        else bar.Children.Add(Text(s.Adapters.FirstOrDefault() ?? "", 12, secondary: true));
+        Top(root, bar);
+
+        var now = new StackPanel();
+        var nameRow = new DockPanel();
+        if (s.CurrentNet is { } cur) { var b = Bars(cur.Bars, 1.3); ((FrameworkElement)b).Margin = new Thickness(0, 0, 10, 0); DockPanel.SetDock(b, Dock.Left); nameRow.Children.Add(b); }
+        var name = Text(s.State switch
+        {
+            ListState.NoAdapter => "Wi-Fi-адаптер не найден",
+            ListState.RadioOff => "Wi-Fi выключен",
+            ListState.NoLocation => "Сеть неизвестна",
+            _ => s.Network,
+        }, 17, FontWeights.SemiBold);
+        DockPanel.SetDock(name, Dock.Left);
+        nameRow.Children.Add(name);
+        if (s.NetworkProfile != "—") { var p = Text("профиль: " + s.NetworkProfile, 12, secondary: true); p.Margin = new Thickness(10, 3, 0, 0); nameRow.Children.Add(p); }
+        else nameRow.Children.Add(new FrameworkElement());
+        now.Children.Add(nameRow);
+        var details = new Grid { Margin = new Thickness(0, 6, 0, 0) };
+        details.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        details.ColumnDefinitions.Add(new ColumnDefinition());
+        var pairs = new[] { ("Адрес", s.Address), ("Шлюз", s.Gateway), ("DNS", s.Dns), ("Прокси", s.Proxy) };
+        for (var i = 0; i < pairs.Length; i++)
+        {
+            details.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var k = Text(pairs[i].Item1, 12, secondary: true);
+            k.Margin = new Thickness(0, 1, 12, 1);
+            Grid.SetRow(k, i);
+            details.Children.Add(k);
+            var v = Text(pairs[i].Item2, 12.5);
+            v.ToolTip = pairs[i].Item2;
+            Grid.SetRow(v, i);
+            Grid.SetColumn(v, 1);
+            details.Children.Add(v);
+        }
+        now.Children.Add(details);
+        Top(root, Card(now, 12));
+
+        foreach (var p in s.Problems) Top(root, InfoBar(p, compact: true));
+        if (s.State == ListState.FileNotRead) Top(root, FileBanner(compact: true));
+
+        var listTitle = Text("Сети рядом", 13, FontWeights.SemiBold, secondary: true);
+        listTitle.Margin = new Thickness(2, 12, 0, 2);
+        Top(root, listTitle);
+
+        if (SpecialListArea(s) is { } special) { root.Children.Add(Card(special, 8)); return root; }
+
+        var list = new ListBox { BorderThickness = new Thickness(0), Background = Brushes.Transparent, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
+        var actionPanels = new List<UIElement>();
+        foreach (var n in s.Nets)
+        {
+            var item = new StackPanel { Margin = new Thickness(0, 2, 0, 2) };
+            var line = new DockPanel();
+            var bars = Bars(n.Bars);
+            ((FrameworkElement)bars).Margin = new Thickness(0, 0, 10, 0);
+            DockPanel.SetDock(bars, Dock.Left);
+            line.Children.Add(bars);
+            var lk = Lock(n);
+            lk.Margin = new Thickness(8, 0, 0, 0);
+            DockPanel.SetDock(lk, Dock.Right);
+            line.Children.Add(lk);
+            var prof2 = Text(ProfileLine(n), 12, secondary: true);
+            prof2.Margin = new Thickness(8, 1, 0, 0);
+            prof2.MaxWidth = 170;
+            DockPanel.SetDock(prof2, Dock.Right);
+            line.Children.Add(prof2);
+            var nm = new StackPanel { Orientation = Orientation.Horizontal };
+            nm.Children.Add(Text(n.Name, 13.5, n.Current ? FontWeights.SemiBold : FontWeights.Normal));
+            if (n.Current) nm.Children.Add(Badge("Подключено"));
+            line.Children.Add(nm);
+            item.Children.Add(line);
+
+            var actions = new StackPanel { Margin = new Thickness(23, 6, 0, 2), Visibility = Visibility.Collapsed };
+            var row = new DockPanel();
+            var main = n.Current ? Button("Применить…", enabled: s.CanSwitch) : Button("Подключиться", accent: true, enabled: s.CanSwitch);
+            main.Padding = new Thickness(10, 4, 10, 5);
+            main.Margin = new Thickness(8, 0, 0, 0);
+            DockPanel.SetDock(main, Dock.Right);
+            row.Children.Add(main);
+            row.Children.Add(ProfileCombo(n, s.CanBind, double.NaN));
+            actions.Children.Add(row);
+            if (n.HasWindowsProfile) { var c = NoAuto(n, s.CanSwitch); c.FontSize = 12; c.Margin = new Thickness(0, 4, 0, 0); actions.Children.Add(c); }
+            item.Children.Add(actions);
+            actionPanels.Add(actions);
+            list.Items.Add(item);
+        }
+        var hidden = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
+        var g = Glyph("", 12, "TextFillColorSecondaryBrush");
+        g.Margin = new Thickness(3, 0, 12, 0);
+        hidden.Children.Add(g);
+        hidden.Children.Add(Text("Скрытая сеть…", 13.5));
+        list.Items.Add(hidden);
+        actionPanels.Add(new UIElement());
+        list.SelectionChanged += (_, _) =>
+        {
+            for (var i = 0; i < actionPanels.Count; i++)
+                actionPanels[i].Visibility = i == list.SelectedIndex ? Visibility.Visible : Visibility.Collapsed;
+        };
+        list.SelectedIndex = Math.Min(1, s.Nets.Length - 1);
+        root.Children.Add(list);
+        return root;
     }
 
     // ---------- B: узкое окно, всё действие в строке сразу, служебное — в подвале ----------

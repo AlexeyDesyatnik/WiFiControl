@@ -106,38 +106,39 @@ static class Ui
     };
 
     // Полоса в духе InfoBar: значок, текст, необязательная кнопка «Применить»
-    public static Border InfoBar(Problem p, bool applyEnabled = true)
+    public static Border InfoBar(Problem p, bool applyEnabled = true, bool compact = false)
     {
         var (bg, glyph, fg) = Look(p.Severity);
         var g = new Grid();
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         g.ColumnDefinitions.Add(new ColumnDefinition());
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var icon = Glyph(glyph, 16, fg);
+        var icon = Glyph(glyph, compact ? 14 : 16, fg);
         icon.VerticalAlignment = VerticalAlignment.Top;
-        icon.Margin = new Thickness(0, 2, 10, 0);
+        icon.Margin = new Thickness(0, 2, compact ? 8 : 10, 0);
         g.Children.Add(icon);
         var texts = new StackPanel();
-        texts.Children.Add(Text(p.Text, 14, FontWeights.SemiBold, wrap: true));
-        if (p.Detail != null) texts.Children.Add(Text(p.Detail, 12, wrap: true));
+        texts.Children.Add(Text(p.Text, compact ? 13 : 14, FontWeights.SemiBold, wrap: true));
+        if (p.Detail != null) texts.Children.Add(Text(p.Detail, compact ? 11.5 : 12, wrap: true));
         Grid.SetColumn(texts, 1);
         g.Children.Add(texts);
         if (p.Apply)
         {
             var b = Button("Применить", accent: true, enabled: applyEnabled);
-            b.Margin = new Thickness(12, 0, 0, 0);
+            if (compact) b.Padding = new Thickness(10, 3, 10, 4);
+            b.Margin = new Thickness(compact ? 8 : 12, 0, 0, 0);
             b.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(b, 2);
             g.Children.Add(b);
         }
-        return new Border { Child = g, Padding = new Thickness(12, 10, 12, 10), CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1), Margin = new Thickness(0, 6, 0, 0) }
+        return new Border { Child = g, Padding = compact ? new Thickness(10, 6, 8, 6) : new Thickness(12, 10, 12, 10), CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1), Margin = new Thickness(0, compact ? 4 : 6, 0, 0) }
             .Res(Border.BackgroundProperty, bg)
             .Res(Border.BorderBrushProperty, "CardStrokeColorDefaultBrush");
     }
 
-    public static Border FileBanner()
+    public static Border FileBanner(bool compact = false)
     {
-        var b = InfoBar(new Problem(Severity.Error, "Файл профилей не прочитан", Data.FileError));
+        var b = InfoBar(new Problem(Severity.Error, "Файл профилей не прочитан", Data.FileError), compact: compact);
         return AddButtons(b, (Grid)b.Child, "Открыть папку", "Перечитать");
     }
 
