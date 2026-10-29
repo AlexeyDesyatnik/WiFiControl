@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ПРОТОТИП раскладки главного окна (#31). Одноразовый, в решение не входит, в main не попадает. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>MainWindowLayout</RootNamespace>
+    <!-- Fluent-тема (ThemeMode) в WPF помечена как экспериментальная -->
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
+  </PropertyGroup>
+
+</Project>
