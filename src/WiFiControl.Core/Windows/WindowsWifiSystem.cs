@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using ManagedNativeWifi;
 using WiFiControl.Core.Model;
 
@@ -12,6 +13,7 @@ public sealed class WindowsWifiSystem : IWifiSystem
 {
     private const int ErrorInvalidState = 5023;
     private static readonly TimeSpan ScanTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(5);
 
     static WindowsWifiSystem()
     {
@@ -83,6 +85,37 @@ public sealed class WindowsWifiSystem : IWifiSystem
         {
             throw new InvalidOperationException("Windows не запустила поиск сетей: " + e.Message, e);
         }
+    }
+
+    public async Task DisconnectAsync(Guid adapter, CancellationToken cancellationToken)
+    {
+        bool disconnected;
+        try
+        {
+            // Библиотека ждёт уведомления об отключении: настройки IPv4 пишутся уже на отключённый адаптер (ADR 0004)
+            disconnected = await NativeWifi.DisconnectNetworkAsync(adapter, DisconnectTimeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Win32Exception e)
+        {
+            throw new InvalidOperationException("Windows не отключила адаптер от сети: " + e.Message, e);
+        }
+        if (!disconnected)
+            throw new InvalidOperationException("Windows не сообщила об отключении от сети за " + DisconnectTimeout.TotalSeconds.ToString(CultureInfo.InvariantCulture) + " с.");
+    }
+
+    public Task ConnectAsync(Guid adapter, string windowsProfile, CancellationToken cancellationToken)
+    {
+        return Task.Run(() =>
+        {
+            try
+            {
+                NativeWifi.ConnectNetwork(adapter, windowsProfile, BssType.Infrastructure, null);
+            }
+            catch (Win32Exception e)
+            {
+                throw new InvalidOperationException("Windows не начала подключение через профиль сети Windows «" + windowsProfile + "»: " + e.Message, e);
+            }
+        }, cancellationToken);
     }
 
     public IDisposable Watch(Action<WifiNotification> onNotification)

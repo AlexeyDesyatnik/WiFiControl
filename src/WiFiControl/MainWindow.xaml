@@ -224,6 +224,11 @@
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
+                        <!-- У знакомой сети, кроме текущей; новые и скрытые сети — позже -->
+                        <Button DockPanel.Dock="Right" Content="Подключиться" Margin="8,0,0,0" Padding="8,2" FontSize="12" VerticalAlignment="Center"
+                                Command="{Binding DataContext.ConnectCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                CommandParameter="{Binding}"
+                                Visibility="{Binding CanConnect, Converter={StaticResource Visible}}" />
                         <!-- У текущей сети вместо «Подключиться» -->
                         <Button DockPanel.Dock="Right" Content="Применить профиль…" Click="OnApplyProfileClick" Margin="8,0,0,0" Padding="8,2"
                                 FontSize="12" VerticalAlignment="Center"

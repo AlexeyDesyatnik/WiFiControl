@@ -7,8 +7,8 @@ using WiFiControl.Core.Storage;
 namespace WiFiControl;
 
 /// <summary>
-/// Главное окно: блок «Сейчас» и список сетей из снимка текущего состояния, «Применить профиль…»
-/// и «Применить» у расхождения.
+/// Главное окно: блок «Сейчас» и список сетей из снимка текущего состояния, «Подключиться» у знакомой сети,
+/// «Применить профиль…» и «Применить» у расхождения.
 /// </summary>
 internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem wifi, ProfileStore store, Applier applier) : ObservableObject
 {
@@ -45,10 +45,11 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     [ObservableProperty]
     private string _proxy = Missing;
 
-    /// <summary>Идёт применение: остальные действия недоступны.</summary>
+    /// <summary>Идёт применение или переключение: остальные действия недоступны, прервать нельзя.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanApplyProfile))]
-    [NotifyCanExecuteChangedFor(nameof(RefreshCommand), nameof(ApplyProfileCommand), nameof(ApplyExpectedCommand), nameof(CloseStepsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RefreshCommand), nameof(ApplyProfileCommand), nameof(ApplyExpectedCommand), nameof(CloseStepsCommand),
+        nameof(ConnectCommand))]
     private bool _isBusy;
 
     /// <summary>Заголовок хода применения; null, если хода не видно.</summary>
@@ -143,6 +144,18 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     [RelayCommand(CanExecute = nameof(CanApply))]
     private Task ApplyExpectedAsync() => _state?.Mismatch == null ? Task.CompletedTask : ApplyAsync(_state.Mismatch.Expected);
 
+    /// <summary>«Подключиться» у знакомой сети: переключение с её профилем.</summary>
+    [RelayCommand(CanExecute = nameof(CanConnect))]
+    private async Task ConnectAsync(NetworkRowViewModel row)
+    {
+        if (!CanConnect(row)) return;
+        Adapter adapter = _state!.Adapter!;
+        NetworkRow network = row.Row;
+        Profile profile = network.Profile!;
+        await RunAsync("Переключение на сеть «" + network.Network + "», профиль «" + profile.Name + "»",
+            report => applier.SwitchAsync(adapter, network.Network, network.WindowsProfileName, profile, report, CancellationToken.None));
+    }
+
     [RelayCommand(CanExecute = nameof(IsIdle))]
     private void CloseSteps()
     {
@@ -154,19 +167,28 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
     private bool CanApply() => CanApplyProfile;
 
-    private async Task ApplyAsync(Profile profile)
-    {
-        if (!CanApplyProfile) return;
-        CurrentState state = _state!;
+    /// <summary>Подключиться можно к знакомой сети, кроме текущей, когда её профиль известен и ничего не идёт.</summary>
+    private bool CanConnect(NetworkRowViewModel? row) => !IsBusy && row is { CanConnect: true } && row.Row.Profile != null && _state?.Adapter != null;
 
+    private Task ApplyAsync(Profile profile)
+    {
+        if (!CanApplyProfile) return Task.CompletedTask;
+        CurrentState state = _state!;
+        return RunAsync("Применение профиля «" + profile.Name + "»",
+            report => applier.ApplyProfileAsync(state.Adapter!, state.Network!, profile, report, CancellationToken.None));
+    }
+
+    /// <summary>Применение или переключение с ходом по шагам; в конце состояние перечитывается.</summary>
+    private async Task RunAsync(string title, Func<Action<StepResult>, Task> run)
+    {
         IsBusy = true;
-        StepsTitle = "Применение профиля «" + profile.Name + "»";
+        StepsTitle = title;
         Steps.Clear();
         // Шаги приходят из чужого потока; Progress возвращает их в поток окна по порядку
         var progress = new Progress<StepResult>(result => Steps.Add(new StepViewModel(result)));
         try
         {
-            await applier.ApplyProfileAsync(state.Adapter!, state.Network!, profile, ((IProgress<StepResult>)progress).Report, CancellationToken.None);
+            await run(((IProgress<StepResult>)progress).Report);
         }
         finally
         {
@@ -181,6 +203,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         OnPropertyChanged(nameof(CanApplyProfile));
         ApplyProfileCommand.NotifyCanExecuteChanged();
         ApplyExpectedCommand.NotifyCanExecuteChanged();
+        ConnectCommand.NotifyCanExecuteChanged();
 
         AdapterName = state.WifiAdapter?.Description ?? "";
         NetworkTitle = state.WifiAdapter == null ? "Wi-Fi-адаптер не найден" : state.Network ?? "Не подключено";
@@ -280,7 +303,12 @@ internal sealed class StepViewModel(StepResult result)
 /// <summary>Строка списка сетей.</summary>
 internal sealed class NetworkRowViewModel(NetworkRow row)
 {
+    public NetworkRow Row => row;
+
     public string Name => row.Network;
+
+    /// <summary>У сети есть профиль сети Windows, и она не текущая: к ней можно подключиться.</summary>
+    public bool CanConnect => !row.IsCurrent && row.WindowsProfileName.Length > 0;
 
     public int Signal => row.Signal;
 

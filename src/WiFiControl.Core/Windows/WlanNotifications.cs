@@ -62,6 +62,7 @@ internal sealed class WlanNotifications : IDisposable
         return code switch
         {
             AcmDisconnected => new WifiDisconnected(adapter, network),
+            AcmConnectionAttemptFail => new WifiConnectionAttemptFailed(adapter, network, reason),
             // connection_complete приходит и после неудачи — тогда с ненулевым кодом причины (docs/connect-check.md)
             AcmConnectionComplete when reason == 0 => new WifiConnected(adapter, network),
             _ => new WifiConnectionFailed(adapter, network, reason),

@@ -24,7 +24,7 @@ public class ApplierTests
         _system.DefaultRoutes.Add(new DefaultRoute(WifiGuid, "10.68.12.1"));
         _system.Answering.Add("10.68.12.1");
         _system.OpenPorts.Add("10.0.68.52:3128");
-        _applier = new Applier(_system, _time);
+        _applier = new Applier(_system, new FakeWifi(), _time);
     }
 
     private Task<IReadOnlyList<StepResult>> ApplyAsync(Profile? profile = null, Action<StepResult>? onStep = null)

@@ -58,7 +58,7 @@ public class WlanNotificationsTests
     public void Attempt_fail_and_complete_with_reason_are_failures_with_the_reason_code()
     {
         // Неверный пароль, по ручной проверке подключения (docs/connect-check.md)
-        Assert.Equal(new WifiConnectionFailed(Adapter, "Office", 0x48014),
+        Assert.Equal(new WifiConnectionAttemptFailed(Adapter, "Office", 0x48014),
             Read(Acm, 11, Connection(Encoding.UTF8.GetBytes("Office"), 0x48014)));
         Assert.Equal(new WifiConnectionFailed(Adapter, "Office", 0x2800B),
             Read(Acm, 10, Connection(Encoding.UTF8.GetBytes("Office"), 0x2800B)));

@@ -18,6 +18,22 @@ internal sealed class FakeWifi : IWifiSystem
 
     public byte[]? Current { get; set; }
 
+    /// <summary>Подключения и отключения по порядку: «disconnect», «connect профиль».</summary>
+    public List<string> Calls { get; } = [];
+
+    /// <summary>Профили сетей Windows, подключение через которые не удаётся, и код причины в попытке.</summary>
+    public Dictionary<string, int> Failing { get; } = [];
+
+    /// <summary>Профили сетей Windows, на подключение через которые Windows молчит.</summary>
+    public HashSet<string> Silent { get; } = [];
+
+    public Exception? ConnectFailure { get; set; }
+
+    public Exception? CurrentFailure { get; set; }
+
+    /// <summary>Уведомления, которые приходят во время подключения перед его исходом.</summary>
+    public List<WifiNotification> DuringConnect { get; } = [];
+
     public static VisibleNetwork Entry(string name, int signal, WifiSecurity security = WifiSecurity.Wpa2Personal, string windowsProfile = "")
     {
         return new VisibleNetwork(Encoding.UTF8.GetBytes(name), signal, security, windowsProfile);
@@ -38,6 +54,7 @@ internal sealed class FakeWifi : IWifiSystem
     public async Task<byte[]?> ReadCurrentNetworkAsync(Guid adapter, CancellationToken cancellationToken)
     {
         await Task.Yield();
+        if (CurrentFailure != null) throw CurrentFailure;
         return Current;
     }
 
@@ -51,6 +68,36 @@ internal sealed class FakeWifi : IWifiSystem
     {
         await Task.Yield();
         Raise(new WifiScanCompleted(adapter));
+    }
+
+    public async Task DisconnectAsync(Guid adapter, CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        Calls.Add("disconnect");
+        if (Current == null) return;
+        string network = NetworkKey.FromBytes(Current);
+        Current = null;
+        Raise(new WifiDisconnected(adapter, network));
+    }
+
+    /// <summary>Как Windows по ручной проверке подключения: исход приходит уведомлениями (docs/connect-check.md).</summary>
+    public async Task ConnectAsync(Guid adapter, string windowsProfile, CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        Calls.Add("connect " + windowsProfile);
+        if (ConnectFailure != null) throw ConnectFailure;
+
+        string network = WindowsProfiles.Single(profile => profile.Name == windowsProfile).Network;
+        foreach (WifiNotification notification in DuringConnect) Raise(notification);
+        if (Silent.Contains(windowsProfile)) return;
+        if (Failing.TryGetValue(windowsProfile, out int reason))
+        {
+            Raise(new WifiConnectionAttemptFailed(adapter, network, reason));
+            Raise(new WifiConnectionFailed(adapter, network, WlanReason.NetworkNotAvailable));
+            return;
+        }
+        Current = Encoding.UTF8.GetBytes(network);
+        Raise(new WifiConnected(adapter, network));
     }
 
     public IDisposable Watch(Action<WifiNotification> onNotification)

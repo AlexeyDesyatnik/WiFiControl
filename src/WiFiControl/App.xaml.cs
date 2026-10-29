@@ -19,7 +19,7 @@ public partial class App : Application
 
         var wifi = new WindowsWifiSystem();
         var network = new WindowsNetworkSystem();
-        var window = new MainWindow(new MainViewModel(network, wifi, store, new Applier(network, TimeProvider.System)), wifi);
+        var window = new MainWindow(new MainViewModel(network, wifi, store, new Applier(network, wifi, TimeProvider.System)), wifi);
         MainWindow = window;
         window.Show();
     }

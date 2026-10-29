@@ -25,6 +25,15 @@ public interface IWifiSystem
     /// <summary>Запускает сканирование и ждёт его завершения. О завершении приходит и уведомление.</summary>
     Task ScanAsync(Guid adapter, CancellationToken cancellationToken);
 
+    /// <summary>Отключает адаптер от сети и ждёт отключения.</summary>
+    Task DisconnectAsync(Guid adapter, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Просит Windows подключиться через профиль сети Windows и не ждёт: чем кончилось, сообщают уведомления
+    /// <see cref="WifiConnected"/> и <see cref="WifiConnectionFailed"/>.
+    /// </summary>
+    Task ConnectAsync(Guid adapter, string windowsProfile, CancellationToken cancellationToken);
+
     /// <summary>
     /// Подписка на уведомления; освобождение её снимает. Обратный вызов приходит в чужом потоке.
     /// </summary>
@@ -63,9 +72,16 @@ public abstract record WifiNotification(Guid Adapter);
 /// <summary>Адаптер подключился к сети.</summary>
 public sealed record WifiConnected(Guid Adapter, string Network) : WifiNotification(Adapter);
 
-/// <summary>Подключиться не удалось.</summary>
-/// <param name="Reason">Код причины WLAN.</param>
+/// <summary>Подключиться не удалось: попытка подключения закончилась неудачей.</summary>
+/// <param name="Reason">
+/// Код причины WLAN. Почти всегда общий — «сеть недоступна»; настоящая причина приходит раньше,
+/// в <see cref="WifiConnectionAttemptFailed"/> (docs/connect-check.md).
+/// </param>
 public sealed record WifiConnectionFailed(Guid Adapter, string Network, int Reason) : WifiNotification(Adapter);
+
+/// <summary>Неудачная попытка подключения; сразу за ней приходит <see cref="WifiConnectionFailed"/>.</summary>
+/// <param name="Reason">Код причины WLAN: здесь настоящая причина, например неверный пароль.</param>
+public sealed record WifiConnectionAttemptFailed(Guid Adapter, string Network, int Reason) : WifiNotification(Adapter);
 
 /// <summary>Адаптер отключился от сети.</summary>
 public sealed record WifiDisconnected(Guid Adapter, string Network) : WifiNotification(Adapter);

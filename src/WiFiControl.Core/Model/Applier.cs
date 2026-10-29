@@ -1,10 +1,10 @@
 namespace WiFiControl.Core.Model;
 
 /// <summary>
-/// Применение профиля к Wi-Fi-адаптеру по шагам: настройки IPv4, настройки прокси, проверка.
-/// Помнит последнее применение до выхода из инструмента.
+/// Применение профиля к Wi-Fi-адаптеру по шагам: настройки IPv4, настройки прокси, проверка; и переключение,
+/// в которое оно входит. Помнит последнее применение до выхода из инструмента.
 /// </summary>
-public sealed class Applier(INetworkSystem system, TimeProvider time)
+public sealed class Applier(INetworkSystem system, IWifiSystem wifi, TimeProvider time)
 {
     /// <summary>Последнее применение; null, если применений ещё не было.</summary>
     public LastApplication? Last { get; private set; }
@@ -32,6 +32,30 @@ public sealed class Applier(INetworkSystem system, TimeProvider time)
 
         // Даже после ошибки шага: ожидается применённый профиль, а неудача видна расхождением
         Last = new LastApplication(network, profile.Id);
+        return results;
+    }
+
+    /// <summary>
+    /// Переключение на сеть через её профиль сети Windows (ADR 0004). Если подключиться не удалось — откат.
+    /// Переключение, в котором подключение состоялось, становится последним применением, даже с ошибками шагов.
+    /// </summary>
+    /// <param name="network">Ключ сети, на которую переключаться.</param>
+    /// <param name="windowsProfile">Профиль сети Windows этой сети.</param>
+    /// <param name="onStep">Вызывается после каждого шага, по порядку.</param>
+    /// <returns>Результаты шагов по порядку, вместе с откатом.</returns>
+    public async Task<IReadOnlyList<StepResult>> SwitchAsync(Adapter adapter, string network, string windowsProfile, Profile profile,
+        Action<StepResult>? onStep, CancellationToken cancellationToken)
+    {
+        var results = new List<StepResult>();
+        void Report(StepResult result)
+        {
+            results.Add(result);
+            onStep?.Invoke(result);
+        }
+
+        var networkSwitch = new NetworkSwitch(system, wifi, time, adapter, Report);
+        if (await networkSwitch.RunAsync(network, windowsProfile, profile, cancellationToken).ConfigureAwait(false))
+            Last = new LastApplication(network, profile.Id);
         return results;
     }
 }
