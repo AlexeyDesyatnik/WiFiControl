@@ -24,7 +24,8 @@ Requires .NET SDK 10 on Windows.
 
 Projects:
 
-- `src/WiFiControl.Core` (the core library, no WPF or WinForms, public types) and `tests/WiFiControl.Core.Tests` (xUnit).
+- `src/WiFiControl.Core` (the core library, no WPF or WinForms, public types) and `tests/WiFiControl.Core.Tests` (xUnit). Windows access goes through `INetworkSystem` (adapter settings, proxy) and `IWifiSystem` (Wi-Fi: networks, notifications); tests use `FakeSystem` and `FakeWifi`.
+- `src/WiFiControl` (the main tool, WPF on CommunityToolkit.Mvvm). No automated tests: logic lives in the core, the window is checked by running it.
 - `src/WiFiControl.Recon` (the recon build, WPF) and `tests/WiFiControl.Recon.Tests` (xUnit). All Windows access goes through `IReadOnlySystem`; tests use `FakeSystem` and `FakeClock`. The recon build shares no code with the core.
 
 CI: `.github/workflows/build.yml` builds in Release and runs tests with `Category!=Machine` on push to `main` and on pull requests.

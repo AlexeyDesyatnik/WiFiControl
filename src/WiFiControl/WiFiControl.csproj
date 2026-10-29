@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>WiFiControl</RootNamespace>
+    <AssemblyName>WiFiControl</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>0.0.0-dev</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Product>WiFiControl</Product>
+    <Description>Подключает к выбранной Wi-Fi-сети и меняет сетевые настройки под неё</Description>
+    <!-- Fluent-тема (ThemeMode) в WPF помечена как экспериментальная -->
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WiFiControl.Core\WiFiControl.Core.csproj" />
+  </ItemGroup>
+
+</Project>
