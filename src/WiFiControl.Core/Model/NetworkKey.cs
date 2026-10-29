@@ -26,4 +26,24 @@ public static class NetworkKey
             return HexPrefix + Convert.ToHexString(ssid);
         }
     }
+
+    /// <summary>
+    /// Байты имени сети по ключу, обратно <see cref="FromBytes"/>. <c>hex:</c> с корректным UTF-8 внутри из байтов
+    /// не получается — такой ключ введён руками, и это само имя.
+    /// </summary>
+    public static byte[] ToBytes(string key)
+    {
+        if (key.StartsWith(HexPrefix, StringComparison.Ordinal))
+        {
+            try
+            {
+                byte[] bytes = Convert.FromHexString(key.AsSpan(HexPrefix.Length));
+                if (Comparer.Equals(FromBytes(bytes), key)) return bytes;
+            }
+            catch (FormatException)
+            {
+            }
+        }
+        return StrictUtf8.GetBytes(key);
+    }
 }

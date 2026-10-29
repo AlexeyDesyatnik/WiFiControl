@@ -191,6 +191,19 @@
                 </ItemsControl>
                 <TextBlock Text="Выполняется…" Style="{StaticResource Secondary}" Margin="20,2,0,0"
                            Visibility="{Binding IsBusy, Converter={StaticResource Visible}}" />
+                <!-- Windows отвергла пароль -->
+                <Button Content="Ввести пароль заново" Click="OnReenterPasswordClick" HorizontalAlignment="Left" Margin="20,6,0,0" Padding="10,3"
+                        FontSize="12" IsEnabled="{Binding CanSwitch}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding PasswordRejected}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
             </StackPanel>
         </Border>
 
@@ -224,11 +237,28 @@
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
-                        <!-- У знакомой сети, кроме текущей; новые и скрытые сети — позже -->
+                        <!-- У знакомой сети, кроме текущей -->
                         <Button DockPanel.Dock="Right" Content="Подключиться" Margin="8,0,0,0" Padding="8,2" FontSize="12" VerticalAlignment="Center"
                                 Command="{Binding DataContext.ConnectCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                 CommandParameter="{Binding}"
                                 Visibility="{Binding CanConnect, Converter={StaticResource Visible}}" />
+                        <!-- У новой сети: с вводом пароля; для 802.1X и WEP — недоступно, с подсказкой -->
+                        <Button DockPanel.Dock="Right" Content="Подключиться…" Click="OnConnectNewClick" Margin="8,0,0,0" Padding="8,2" FontSize="12"
+                                VerticalAlignment="Center" ToolTipService.ShowOnDisabled="True"
+                                Visibility="{Binding IsNew, Converter={StaticResource Visible}}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                    <Setter Property="IsEnabled" Value="{Binding DataContext.CanSwitch, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsUnsupported}" Value="True">
+                                            <Setter Property="IsEnabled" Value="False" />
+                                            <Setter Property="ToolTip"
+                                                    Value="Сеть с такой защитой инструмент не добавляет. Подключитесь к ней один раз через системное меню Wi-Fi — дальше она будет знакомой и здесь." />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
                         <!-- У текущей сети вместо «Подключиться» -->
                         <Button DockPanel.Dock="Right" Content="Применить профиль…" Click="OnApplyProfileClick" Margin="8,0,0,0" Padding="8,2"
                                 FontSize="12" VerticalAlignment="Center"

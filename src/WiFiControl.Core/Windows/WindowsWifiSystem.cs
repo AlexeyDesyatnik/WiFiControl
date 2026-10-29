@@ -74,6 +74,53 @@ public sealed class WindowsWifiSystem : IWifiSystem
             .ToList(), cancellationToken);
     }
 
+    public Task<string> ReadWindowsProfileXmlAsync(Guid adapter, string name, CancellationToken cancellationToken)
+    {
+        return RunAsync("профиль сети Windows «" + name + "»", () => NativeWifi.EnumerateProfiles()
+            .FirstOrDefault(profile => profile.InterfaceInfo.Id == adapter && profile.Name == name)?.Document.Xml
+            ?? throw new InvalidOperationException("Профиля сети Windows «" + name + "» больше нет."), cancellationToken);
+    }
+
+    public Task SaveWindowsProfileAsync(Guid adapter, string xml, bool overwrite, CancellationToken cancellationToken)
+    {
+        return Task.Run(() =>
+        {
+            bool saved;
+            try
+            {
+                // Профиль из системного меню обычно принадлежит пользователю: перезапись для всех пользователей
+                // оставила бы рядом второй профиль с прежним паролем
+                string name = new ProfileDocument(xml).Name;
+                ProfileType type = (overwrite ? NativeWifi.EnumerateProfiles()
+                    .FirstOrDefault(profile => profile.InterfaceInfo.Id == adapter && profile.Name == name)?.ProfileType : null) ?? ProfileType.AllUser;
+                saved = NativeWifi.SetProfile(adapter, type, xml, null, overwrite);
+            }
+            // Сюда же приходит профиль с тем же именем, когда перезаписывать нельзя (ERROR_ALREADY_EXISTS)
+            catch (Win32Exception e)
+            {
+                throw new InvalidOperationException("Windows не сохранила профиль сети Windows: " + e.Message, e);
+            }
+            if (!saved) throw new InvalidOperationException("Windows не сохранила профиль сети Windows.");
+        }, cancellationToken);
+    }
+
+    public Task DeleteWindowsProfileAsync(Guid adapter, string name, CancellationToken cancellationToken)
+    {
+        return Task.Run(() =>
+        {
+            bool deleted;
+            try
+            {
+                deleted = NativeWifi.DeleteProfile(adapter, name);
+            }
+            catch (Win32Exception e)
+            {
+                throw new InvalidOperationException("Windows не удалила профиль сети Windows «" + name + "»: " + e.Message, e);
+            }
+            if (!deleted) throw new InvalidOperationException("Windows не удалила профиль сети Windows «" + name + "».");
+        }, cancellationToken);
+    }
+
     public async Task ScanAsync(Guid adapter, CancellationToken cancellationToken)
     {
         try

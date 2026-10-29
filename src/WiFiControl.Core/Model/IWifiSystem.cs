@@ -22,6 +22,19 @@ public interface IWifiSystem
     /// <summary>Профили сетей Windows этого адаптера.</summary>
     Task<IReadOnlyList<WindowsProfile>> ReadWindowsProfilesAsync(Guid adapter, CancellationToken cancellationToken);
 
+    /// <summary>XML профиля сети Windows этого адаптера; пароль в нём зашифрован.</summary>
+    Task<string> ReadWindowsProfileXmlAsync(Guid adapter, string name, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Сохраняет профиль сети Windows по XML (<see cref="WindowsProfileXml"/>): новый — для всех пользователей,
+    /// перезаписанный — с прежним владельцем. Профиль с тем же именем без <paramref name="overwrite"/> не перезаписывается —
+    /// это отказ.
+    /// </summary>
+    Task SaveWindowsProfileAsync(Guid adapter, string xml, bool overwrite, CancellationToken cancellationToken);
+
+    /// <summary>Удаляет профиль сети Windows этого адаптера.</summary>
+    Task DeleteWindowsProfileAsync(Guid adapter, string name, CancellationToken cancellationToken);
+
     /// <summary>Запускает сканирование и ждёт его завершения. О завершении приходит и уведомление.</summary>
     Task ScanAsync(Guid adapter, CancellationToken cancellationToken);
 

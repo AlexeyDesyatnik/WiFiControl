@@ -40,9 +40,9 @@ public class SwitchTests
         _applier = new Applier(_system, _wifi, _time);
     }
 
-    private Task<IReadOnlyList<StepResult>> SwitchAsync(Profile? profile = null, Action<StepResult>? onStep = null)
+    private async Task<IReadOnlyList<StepResult>> SwitchAsync(Profile? profile = null, Action<StepResult>? onStep = null)
     {
-        return _applier.SwitchAsync(_adapter, "Office", "Office", profile ?? _office, onStep, CancellationToken.None);
+        return (await _applier.SwitchAsync(_adapter, "Office", "Office", profile ?? _office, onStep, CancellationToken.None)).Steps;
     }
 
     private static StepResult Step(IReadOnlyList<StepResult> results, string title) => results.Single(result => result.Title == title);

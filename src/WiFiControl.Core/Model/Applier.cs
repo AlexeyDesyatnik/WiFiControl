@@ -42,9 +42,35 @@ public sealed class Applier(INetworkSystem system, IWifiSystem wifi, TimeProvide
     /// <param name="network">Ключ сети, на которую переключаться.</param>
     /// <param name="windowsProfile">Профиль сети Windows этой сети.</param>
     /// <param name="onStep">Вызывается после каждого шага, по порядку.</param>
-    /// <returns>Результаты шагов по порядку, вместе с откатом.</returns>
-    public async Task<IReadOnlyList<StepResult>> SwitchAsync(Adapter adapter, string network, string windowsProfile, Profile profile,
+    public Task<SwitchResult> SwitchAsync(Adapter adapter, string network, string windowsProfile, Profile profile,
         Action<StepResult>? onStep, CancellationToken cancellationToken)
+    {
+        return RunSwitchAsync(adapter, network, windowsProfile, null, profile, onStep, cancellationToken);
+    }
+
+    /// <summary>
+    /// Переключение на новую сеть: перед подключением создаётся профиль сети Windows. Если подключиться не удалось,
+    /// созданный профиль удаляется при откате; существовавший профиль с тем же именем не перезаписывается.
+    /// </summary>
+    /// <param name="windowsProfile">Профиль сети Windows из <see cref="WindowsProfileXml.Build"/>.</param>
+    public Task<SwitchResult> SwitchToNewAsync(Adapter adapter, string network, NewWindowsProfile windowsProfile, Profile profile,
+        Action<StepResult>? onStep, CancellationToken cancellationToken)
+    {
+        return RunSwitchAsync(adapter, network, windowsProfile.Name, new CreateWindowsProfile(windowsProfile), profile, onStep, cancellationToken);
+    }
+
+    /// <summary>
+    /// «Ввести пароль заново»: пароль в существующем профиле сети Windows перезаписывается, затем переключение.
+    /// Если подключиться снова не удалось, новый пароль остаётся: прежний Windows уже отверг.
+    /// </summary>
+    public Task<SwitchResult> SwitchWithPasswordAsync(Adapter adapter, string network, string windowsProfile, string password, Profile profile,
+        Action<StepResult>? onStep, CancellationToken cancellationToken)
+    {
+        return RunSwitchAsync(adapter, network, windowsProfile, new ReplacePassword(password), profile, onStep, cancellationToken);
+    }
+
+    private async Task<SwitchResult> RunSwitchAsync(Adapter adapter, string network, string windowsProfile, WindowsProfileChange? change,
+        Profile profile, Action<StepResult>? onStep, CancellationToken cancellationToken)
     {
         var results = new List<StepResult>();
         void Report(StepResult result)
@@ -54,8 +80,14 @@ public sealed class Applier(INetworkSystem system, IWifiSystem wifi, TimeProvide
         }
 
         var networkSwitch = new NetworkSwitch(system, wifi, time, adapter, Report);
-        if (await networkSwitch.RunAsync(network, windowsProfile, profile, cancellationToken).ConfigureAwait(false))
-            Last = new LastApplication(network, profile.Id);
-        return results;
+        (bool connected, bool passwordRejected) = await networkSwitch.RunAsync(network, windowsProfile, change, profile, cancellationToken)
+            .ConfigureAwait(false);
+        if (connected) Last = new LastApplication(network, profile.Id);
+        return new SwitchResult(results, passwordRejected);
     }
 }
+
+/// <summary>Чем закончилось переключение.</summary>
+/// <param name="Steps">Результаты шагов по порядку, вместе с откатом.</param>
+/// <param name="PasswordRejected">Подключиться не удалось, потому что Windows отвергла пароль: можно «Ввести пароль заново».</param>
+public sealed record SwitchResult(IReadOnlyList<StepResult> Steps, bool PasswordRejected);

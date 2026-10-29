@@ -79,6 +79,36 @@ internal partial class MainWindow : Window
         if (Shown) await _model.LoadAsync();
     }
 
+    private async void OnConnectNewClick(object sender, RoutedEventArgs e)
+    {
+        var row = (NetworkRowViewModel)((Button)sender).DataContext;
+        if (row.NewSecurity is not { } security) return;
+        await ConnectNewAsync(row.Row, security);
+    }
+
+    /// <summary>
+    /// У знакомой сети — новый пароль в её профиле сети Windows. Сети, чей профиль сети Windows создало и удалило
+    /// неудачное переключение, — снова окно новой сети.
+    /// </summary>
+    private async void OnReenterPasswordClick(object sender, RoutedEventArgs e)
+    {
+        if (_model.PasswordRejected is not { } network) return;
+        if (network.WindowsProfileName.Length == 0)
+        {
+            if (WindowsProfileXml.SecurityFor(network.Security) is { } security) await ConnectNewAsync(network, security);
+            return;
+        }
+
+        var dialog = new PasswordWindow(network.Network, security: null) { Owner = this };
+        if (dialog.ShowDialog() == true) await _model.ReenterPasswordAsync(network, dialog.PasswordText);
+    }
+
+    private async Task ConnectNewAsync(NetworkRow network, NewNetworkSecurity security)
+    {
+        var dialog = new PasswordWindow(network.Network, security) { Owner = this };
+        if (dialog.ShowDialog() == true) await _model.ConnectNewAsync(network, security, dialog.PasswordText, dialog.IsAutoConnect);
+    }
+
     // Список профилей собирается при нажатии: профили могли измениться
     private void OnApplyProfileClick(object sender, RoutedEventArgs e)
     {

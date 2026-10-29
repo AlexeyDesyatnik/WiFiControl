@@ -7,8 +7,8 @@ using WiFiControl.Core.Storage;
 namespace WiFiControl;
 
 /// <summary>
-/// Главное окно: блок «Сейчас» и список сетей из снимка текущего состояния, «Подключиться» у знакомой сети,
-/// «Применить профиль…» и «Применить» у расхождения.
+/// Главное окно: блок «Сейчас» и список сетей из снимка текущего состояния, «Подключиться» у знакомой сети
+/// и у новой, «Ввести пароль заново», «Применить профиль…» и «Применить» у расхождения.
 /// </summary>
 internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem wifi, ProfileStore store, Applier applier) : ObservableObject
 {
@@ -47,7 +47,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
     /// <summary>Идёт применение или переключение: остальные действия недоступны, прервать нельзя.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanApplyProfile))]
+    [NotifyPropertyChangedFor(nameof(CanApplyProfile), nameof(CanSwitch))]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand), nameof(ApplyProfileCommand), nameof(ApplyExpectedCommand), nameof(CloseStepsCommand),
         nameof(ConnectCommand))]
     private bool _isBusy;
@@ -55,6 +55,13 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     /// <summary>Заголовок хода применения; null, если хода не видно.</summary>
     [ObservableProperty]
     private string? _stepsTitle;
+
+    /// <summary>
+    /// Сеть, к которой не подключились, потому что Windows отвергла пароль: у хода переключения есть «Ввести пароль заново».
+    /// null, если такого нет.
+    /// </summary>
+    [ObservableProperty]
+    private NetworkRow? _passwordRejected;
 
     /// <summary>Почему состояние не прочитано; null, если прочитано.</summary>
     [ObservableProperty]
@@ -70,6 +77,9 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
     /// <summary>Применить профиль можно: адаптер подключён к известной сети, профили прочитаны, применение не идёт.</summary>
     public bool CanApplyProfile => !IsBusy && _state?.Adapter != null && _state.Network != null && store.LoadError == null;
+
+    /// <summary>Переключаться можно: адаптер известен, профили прочитаны, ничего не идёт.</summary>
+    public bool CanSwitch => !IsBusy && _state?.Adapter != null && store.LoadError == null;
 
     /// <summary>Профили для «Применить профиль…»: «Автоматически» первым.</summary>
     public IReadOnlyList<Profile> ProfileChoices => store.LoadError == null ? [Profile.Automatic, .. store.Profiles.Profiles] : [];
@@ -152,8 +162,31 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         Adapter adapter = _state!.Adapter!;
         NetworkRow network = row.Row;
         Profile profile = network.Profile!;
-        await RunAsync("Переключение на сеть «" + network.Network + "», профиль «" + profile.Name + "»",
+        await SwitchAsync(network,
             report => applier.SwitchAsync(adapter, network.Network, network.WindowsProfileName, profile, report, CancellationToken.None));
+    }
+
+    /// <summary>
+    /// «Подключиться…» у новой сети: переключение с созданием профиля сети Windows. Пароль сюда приходит из окна
+    /// ввода пароля и дальше профиля сети Windows не уходит.
+    /// </summary>
+    public Task ConnectNewAsync(NetworkRow network, NewNetworkSecurity security, string password, bool autoConnect)
+    {
+        if (!CanSwitch || network.Profile == null) return Task.CompletedTask;
+        Adapter adapter = _state!.Adapter!;
+        Profile profile = network.Profile;
+        NewWindowsProfile windowsProfile = WindowsProfileXml.Build(network.Network, security, password, autoConnect);
+        return SwitchAsync(network, report => applier.SwitchToNewAsync(adapter, network.Network, windowsProfile, profile, report, CancellationToken.None));
+    }
+
+    /// <summary>«Ввести пароль заново» у знакомой сети: новый пароль в её профиле сети Windows и переключение.</summary>
+    public Task ReenterPasswordAsync(NetworkRow network, string password)
+    {
+        if (!CanSwitch || network.Profile == null) return Task.CompletedTask;
+        Adapter adapter = _state!.Adapter!;
+        Profile profile = network.Profile;
+        return SwitchAsync(network,
+            report => applier.SwitchWithPasswordAsync(adapter, network.Network, network.WindowsProfileName, password, profile, report, CancellationToken.None));
     }
 
     [RelayCommand(CanExecute = nameof(IsIdle))]
@@ -161,6 +194,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     {
         StepsTitle = null;
         Steps.Clear();
+        PasswordRejected = null;
     }
 
     private bool IsIdle() => !IsBusy;
@@ -178,12 +212,23 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
             report => applier.ApplyProfileAsync(state.Adapter!, state.Network!, profile, report, CancellationToken.None));
     }
 
+    /// <summary>Переключение; если Windows отвергла пароль, у хода появляется «Ввести пароль заново».</summary>
+    private Task SwitchAsync(NetworkRow network, Func<Action<StepResult>, Task<SwitchResult>> run)
+    {
+        return RunAsync("Переключение на сеть «" + network.Network + "», профиль «" + network.Profile!.Name + "»", async report =>
+        {
+            SwitchResult result = await run(report);
+            if (result.PasswordRejected) PasswordRejected = network;
+        });
+    }
+
     /// <summary>Применение или переключение с ходом по шагам; в конце состояние перечитывается.</summary>
     private async Task RunAsync(string title, Func<Action<StepResult>, Task> run)
     {
         IsBusy = true;
         StepsTitle = title;
         Steps.Clear();
+        PasswordRejected = null;
         // Шаги приходят из чужого потока; Progress возвращает их в поток окна по порядку
         var progress = new Progress<StepResult>(result => Steps.Add(new StepViewModel(result)));
         try
@@ -201,6 +246,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     {
         _state = state;
         OnPropertyChanged(nameof(CanApplyProfile));
+        OnPropertyChanged(nameof(CanSwitch));
         ApplyProfileCommand.NotifyCanExecuteChanged();
         ApplyExpectedCommand.NotifyCanExecuteChanged();
         ConnectCommand.NotifyCanExecuteChanged();
@@ -309,6 +355,15 @@ internal sealed class NetworkRowViewModel(NetworkRow row)
 
     /// <summary>У сети есть профиль сети Windows, и она не текущая: к ней можно подключиться.</summary>
     public bool CanConnect => !row.IsCurrent && row.WindowsProfileName.Length > 0;
+
+    /// <summary>Новая сеть: профиля сети Windows нет, и она не текущая. «Подключиться…» с вводом пароля.</summary>
+    public bool IsNew => !row.IsCurrent && row.WindowsProfileName.Length == 0;
+
+    /// <summary>Защита для профиля сети Windows, который создаст инструмент; null — такой профиль только через системное меню.</summary>
+    public NewNetworkSecurity? NewSecurity => WindowsProfileXml.SecurityFor(row.Security);
+
+    /// <summary>Профиль сети Windows для новой сети инструмент не создаёт (802.1X, WEP и прочие).</summary>
+    public bool IsUnsupported => NewSecurity == null;
 
     public int Signal => row.Signal;
 

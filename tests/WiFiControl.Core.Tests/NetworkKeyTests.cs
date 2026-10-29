@@ -28,4 +28,20 @@ public class NetworkKeyTests
 
         Assert.False(NetworkKey.Comparer.Equals(upper, lower));
     }
+
+    [Fact]
+    public void Bytes_come_back_from_a_text_key_and_from_a_hex_key()
+    {
+        Assert.Equal(Encoding.UTF8.GetBytes("Офис 5G"), NetworkKey.ToBytes("Офис 5G"));
+        Assert.Equal([0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2], NetworkKey.ToBytes("hex:CFF0E8E2E5F2"));
+    }
+
+    [Theory]
+    // Такой ключ из байтов не получится: «A» — корректный UTF-8, значит, это имя, введённое руками
+    [InlineData("hex:41")]
+    [InlineData("hex:не hex")]
+    public void Text_that_only_looks_like_a_hex_key_is_the_name_itself(string key)
+    {
+        Assert.Equal(Encoding.UTF8.GetBytes(key), NetworkKey.ToBytes(key));
+    }
 }

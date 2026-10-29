@@ -1,4 +1,5 @@
 using System.Text;
+using System.Xml.Linq;
 using WiFiControl.Core.Model;
 
 namespace WiFiControl.Core.Tests;
@@ -16,9 +17,12 @@ internal sealed class FakeWifi : IWifiSystem
 
     public List<WindowsProfile> WindowsProfiles { get; } = [];
 
+    /// <summary>XML профилей сетей Windows по имени, если тест его задал или профиль сохранён.</summary>
+    public Dictionary<string, string> Xml { get; } = [];
+
     public byte[]? Current { get; set; }
 
-    /// <summary>Подключения и отключения по порядку: «disconnect», «connect профиль».</summary>
+    /// <summary>Подключения, отключения и запись профилей по порядку: «disconnect», «connect профиль», «save профиль», «delete профиль».</summary>
     public List<string> Calls { get; } = [];
 
     /// <summary>Профили сетей Windows, подключение через которые не удаётся, и код причины в попытке.</summary>
@@ -62,6 +66,45 @@ internal sealed class FakeWifi : IWifiSystem
     {
         await Task.Yield();
         return [.. WindowsProfiles];
+    }
+
+    public async Task<string> ReadWindowsProfileXmlAsync(Guid adapter, string name, CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        return Xml.TryGetValue(name, out string? xml) ? xml : throw new InvalidOperationException("Профиля сети Windows «" + name + "» нет.");
+    }
+
+    /// <summary>Как Windows: имя и сеть берутся из XML, существующий профиль без перезаписи — отказ.</summary>
+    public async Task SaveWindowsProfileAsync(Guid adapter, string xml, bool overwrite, CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        XElement root = XDocument.Parse(xml).Root!;
+        string name = root.Element(root.Name.Namespace + "name")!.Value;
+        Calls.Add("save " + name);
+        if (!overwrite && WindowsProfiles.Any(profile => profile.Name == name))
+            throw new InvalidOperationException("Профиль сети Windows «" + name + "» уже есть.");
+        Store(name, xml);
+    }
+
+    public async Task DeleteWindowsProfileAsync(Guid adapter, string name, CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        Calls.Add("delete " + name);
+        if (WindowsProfiles.RemoveAll(profile => profile.Name == name) == 0) throw new InvalidOperationException("Профиля сети Windows «" + name + "» нет.");
+        Xml.Remove(name);
+    }
+
+    /// <summary>Профиль сети Windows, который уже был до теста; заменяет одноимённый.</summary>
+    public void AddWindowsProfile(NewWindowsProfile profile) => Store(profile.Name, profile.Xml);
+
+    private void Store(string name, string xml)
+    {
+        XElement root = XDocument.Parse(xml).Root!;
+        XNamespace v1 = root.Name.Namespace;
+        string hex = root.Element(v1 + "SSIDConfig")!.Element(v1 + "SSID")!.Element(v1 + "hex")!.Value;
+        WindowsProfiles.RemoveAll(profile => profile.Name == name);
+        WindowsProfiles.Add(new WindowsProfile(name, NetworkKey.FromBytes(Convert.FromHexString(hex))));
+        Xml[name] = xml;
     }
 
     public async Task ScanAsync(Guid adapter, CancellationToken cancellationToken)
