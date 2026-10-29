@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Management;
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Security;
@@ -11,6 +12,9 @@ public sealed class WindowsNetworkSystem : INetworkSystem
 {
     private static readonly TimeSpan SettleTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SettlePoll = TimeSpan.FromMilliseconds(300);
+
+    // Любой внешний адрес: маршрут к нему выбирается по таблице, трафик не отправляется. Тот же, что в разведочной сборке
+    private static readonly IPAddress InternetAddress = IPAddress.Parse("8.8.8.8");
 
     public Task<IReadOnlyList<Adapter>> ReadAdaptersAsync(CancellationToken cancellationToken)
     {
@@ -112,6 +116,36 @@ public sealed class WindowsNetworkSystem : INetworkSystem
             catch (Exception e) when (e is Win32Exception or SecurityException or UnauthorizedAccessException or IOException)
             {
                 throw new InvalidOperationException("Windows не дала записать WinHTTP-прокси: " + e.Message, e);
+            }
+        }, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<DefaultRoute>> ReadDefaultRoutesAsync(CancellationToken cancellationToken)
+    {
+        return Task.Run(() =>
+        {
+            try
+            {
+                return IpHelper.ReadDefaultRoutes();
+            }
+            catch (Win32Exception e)
+            {
+                throw new InvalidOperationException("Windows не отдала таблицу маршрутов: " + e.Message, e);
+            }
+        }, cancellationToken);
+    }
+
+    public Task<Guid?> ReadInternetAdapterAsync(CancellationToken cancellationToken)
+    {
+        return Task.Run(() =>
+        {
+            try
+            {
+                return IpHelper.ReadBestRouteAdapter(InternetAddress);
+            }
+            catch (Win32Exception e)
+            {
+                throw new InvalidOperationException("Windows не сообщила, через какой адаптер идёт интернет: " + e.Message, e);
             }
         }, cancellationToken);
     }

@@ -27,6 +27,11 @@ internal sealed class FakeSystem : INetworkSystem
 
     public Exception? WinHttpFailure { get; set; }
 
+    public List<DefaultRoute> DefaultRoutes { get; } = [];
+
+    /// <summary>Что вернёт <see cref="ReadInternetAdapterAsync"/>.</summary>
+    public Guid? InternetAdapter { get; set; }
+
     public static Adapter WiFi(AdapterState state = AdapterState.NoLink)
     {
         return new Adapter
@@ -95,6 +100,20 @@ internal sealed class FakeSystem : INetworkSystem
         Calls.Add("winhttp");
         if (WinHttpFailure != null) throw WinHttpFailure;
         WinHttp = Reread(settings);
+    }
+
+    public async Task<IReadOnlyList<DefaultRoute>> ReadDefaultRoutesAsync(CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        cancellationToken.ThrowIfCancellationRequested();
+        return [.. DefaultRoutes];
+    }
+
+    public async Task<Guid?> ReadInternetAdapterAsync(CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        cancellationToken.ThrowIfCancellationRequested();
+        return InternetAdapter;
     }
 
     private static ProxySettings Reread(ProxySettings settings)

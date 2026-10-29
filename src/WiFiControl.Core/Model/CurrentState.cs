@@ -8,6 +8,19 @@ namespace WiFiControl.Core.Model;
 public sealed record NetworkRow(string Network, int Signal, WifiSecurity Security, string WindowsProfileName, bool IsCurrent,
     Profile? Profile, bool IsBound);
 
+/// <summary>Признак проблемы в блоке «Сейчас».</summary>
+public enum Problem
+{
+    /// <summary>Адрес не получен: адреса нет или он самоназначенный 169.254.x.x.</summary>
+    NoAddress,
+    /// <summary>Windows обнаружила в сети другой компьютер с тем же адресом.</summary>
+    AddressConflict,
+    /// <summary>Адрес есть, но маршрута по умолчанию через Wi-Fi-адаптер нет: интернета нет.</summary>
+    NoDefaultRoute,
+    /// <summary>Интернет сейчас идёт через проводной адаптер (ADR 0006).</summary>
+    InternetViaEthernet,
+}
+
 /// <summary>Снимок текущего состояния для блока «Сейчас» и списка сетей.</summary>
 public sealed class CurrentState
 {
@@ -28,23 +41,44 @@ public sealed class CurrentState
 
     public required ProxyState Proxy { get; init; }
 
+    /// <summary>Адаптер, через который Windows отправляет трафик в интернет; null, если маршрута в интернет нет.</summary>
+    public Adapter? InternetAdapter { get; private init; }
+
+    /// <summary>Признаки проблем по порядку <see cref="Model.Problem"/>.</summary>
+    public IReadOnlyList<Problem> Problems { get; private init; } = [];
+
+    /// <summary>
+    /// Ожидаемый профиль (<see cref="Model.Mismatch.ExpectedProfile"/>); null, если сети нет или профили неизвестны.
+    /// Не всегда совпадает с <see cref="Profile"/>: после «Применить профиль…» ожидается применённый.
+    /// </summary>
+    public Profile? ExpectedProfile { get; private init; }
+
+    /// <summary>Различия с ожидаемым профилем; пусто, если расхождения нет или его не с чем сравнить.</summary>
+    public IReadOnlyList<Difference> Mismatch { get; private init; } = [];
+
     /// <summary>Видимые сети: текущая первой, остальные по убыванию сигнала.</summary>
     public IReadOnlyList<NetworkRow> Networks { get; private init; } = [];
 
     /// <param name="profiles">Профили и привязки; null, если файл профилей не прочитан.</param>
-    public static async Task<CurrentState> ReadAsync(INetworkSystem network, IWifiSystem wifi, ProfileSet? profiles, CancellationToken cancellationToken)
+    /// <param name="last">Последнее применение; null, если его не было.</param>
+    public static async Task<CurrentState> ReadAsync(INetworkSystem network, IWifiSystem wifi, ProfileSet? profiles, LastApplication? last,
+        CancellationToken cancellationToken)
     {
         ProxyState proxy = await network.ReadProxyAsync(cancellationToken).ConfigureAwait(false);
         // Выбор из нескольких Wi-Fi-адаптеров появится позже, пока — первый
         WifiAdapter? wifiAdapter = (await wifi.ReadAdaptersAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault();
         if (wifiAdapter == null) return new CurrentState { Proxy = proxy };
 
-        Adapter? adapter = (await network.ReadAdaptersAsync(cancellationToken).ConfigureAwait(false))
-            .FirstOrDefault(candidate => Guid.TryParse(candidate.Id, out Guid id) && id == wifiAdapter.Id);
+        IReadOnlyList<Adapter> adapters = await network.ReadAdaptersAsync(cancellationToken).ConfigureAwait(false);
+        Adapter? adapter = adapters.FirstOrDefault(candidate => IsAdapter(candidate, wifiAdapter.Id));
+        IReadOnlyList<DefaultRoute> routes = await network.ReadDefaultRoutesAsync(cancellationToken).ConfigureAwait(false);
+        Guid? internetId = await network.ReadInternetAdapterAsync(cancellationToken).ConfigureAwait(false);
+        Adapter? internetAdapter = internetId == null ? null : adapters.FirstOrDefault(candidate => IsAdapter(candidate, internetId.Value));
         byte[]? current = await wifi.ReadCurrentNetworkAsync(wifiAdapter.Id, cancellationToken).ConfigureAwait(false);
         IReadOnlyList<VisibleNetwork> entries = await wifi.ReadVisibleNetworksAsync(wifiAdapter.Id, cancellationToken).ConfigureAwait(false);
 
         string? currentKey = current == null ? null : NetworkKey.FromBytes(current);
+        Profile? expected = currentKey == null || profiles == null ? null : Model.Mismatch.ExpectedProfile(last, currentKey, profiles);
         return new CurrentState
         {
             WifiAdapter = wifiAdapter,
@@ -53,8 +87,41 @@ public sealed class CurrentState
             Profile = currentKey == null ? null : profiles?.ProfileFor(currentKey),
             IsBound = currentKey != null && profiles != null && profiles.Bindings.ContainsKey(currentKey),
             Proxy = proxy,
+            InternetAdapter = internetAdapter,
+            Problems = FindProblems(currentKey == null ? null : adapter, routes, internetAdapter),
+            ExpectedProfile = expected,
+            Mismatch = expected == null || adapter == null ? [] : Model.Mismatch.Find(expected, adapter.Configured, proxy),
             Networks = BuildList(entries, currentKey, profiles),
         };
+    }
+
+    private static bool IsAdapter(Adapter candidate, Guid id) => Guid.TryParse(candidate.Id, out Guid candidateId) && candidateId == id;
+
+    /// <param name="adapter">Wi-Fi-адаптер, если он подключён к сети.</param>
+    private static List<Problem> FindProblems(Adapter? adapter, IReadOnlyList<DefaultRoute> routes, Adapter? internetAdapter)
+    {
+        var problems = new List<Problem>();
+        if (adapter != null)
+        {
+            // Адрес-дубликат в действующие не попадает, и без признака конфликта это выглядело бы как «адрес не получен».
+            // Без адреса нет и маршрута, поэтому о маршруте говорим только при рабочем адресе.
+            if (adapter.Active.HasConflict)
+                problems.Add(Problem.AddressConflict);
+            else if (!adapter.Active.Addresses.Any(address => !IsSelfAssigned(address)))
+                problems.Add(Problem.NoAddress);
+            else if (!routes.Any(route => IsAdapter(adapter, route.Adapter)))
+                problems.Add(Problem.NoDefaultRoute);
+        }
+        // Виртуальный адаптер — обычно VPN: это не «через Ethernet»
+        if (internetAdapter != null && internetAdapter.IsPhysical && !internetAdapter.IsWireless)
+            problems.Add(Problem.InternetViaEthernet);
+        return problems;
+    }
+
+    /// <param name="address">Адрес с длиной префикса или без неё.</param>
+    private static bool IsSelfAssigned(string address)
+    {
+        return Ipv4.TryParse(address.Split('/')[0], out uint value) && (value >> 16) == (169u << 8 | 254u);
     }
 
     private static List<NetworkRow> BuildList(IReadOnlyList<VisibleNetwork> entries, string? current, ProfileSet? profiles)

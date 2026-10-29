@@ -41,6 +41,18 @@ public class MachineSmokeTests
     }
 
     [Fact]
+    public async Task Reads_routes_and_finds_their_adapters_among_network_adapters()
+    {
+        var system = new WindowsNetworkSystem();
+        IReadOnlyList<Adapter> adapters = await system.ReadAdaptersAsync(CancellationToken.None);
+        IReadOnlyList<DefaultRoute> routes = await system.ReadDefaultRoutesAsync(CancellationToken.None);
+        Guid? internet = await system.ReadInternetAdapterAsync(CancellationToken.None);
+
+        Assert.All(routes, route => Assert.True(System.Net.IPAddress.TryParse(route.Gateway, out _)));
+        if (internet != null) Assert.Contains(adapters, candidate => Guid.Parse(candidate.Id) == internet);
+    }
+
+    [Fact]
     public async Task Reads_wifi_adapters_and_finds_them_among_network_adapters()
     {
         IReadOnlyList<WifiAdapter> wifi = await new WindowsWifiSystem().ReadAdaptersAsync(CancellationToken.None);

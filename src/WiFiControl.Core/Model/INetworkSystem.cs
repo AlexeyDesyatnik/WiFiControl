@@ -27,4 +27,21 @@ public interface INetworkSystem
 
     /// <summary>Записывает WinHTTP-прокси; выключенный прокси — это «напрямую».</summary>
     Task WriteWinHttpProxyAsync(ProxySettings settings, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Маршруты по умолчанию IPv4 (0.0.0.0/0) из таблицы маршрутов на всех адаптерах. Бывают и на отключённом
+    /// адаптере с ручным шлюзом (ADR 0006).
+    /// </summary>
+    Task<IReadOnlyList<DefaultRoute>> ReadDefaultRoutesAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Адаптер, через который Windows отправила бы трафик в интернет: маршрут, выбранный <c>GetBestRoute2</c>
+    /// к внешнему адресу (ADR 0006). Ничего не отправляет. null, если маршрута нет.
+    /// </summary>
+    Task<Guid?> ReadInternetAdapterAsync(CancellationToken cancellationToken);
 }
+
+/// <summary>Маршрут по умолчанию IPv4.</summary>
+/// <param name="Adapter">GUID адаптера, тот же, что в <see cref="Model.Adapter.Id"/>.</param>
+/// <param name="Gateway">Следующий узел; 0.0.0.0 у маршрута без шлюза.</param>
+public sealed record DefaultRoute(Guid Adapter, string Gateway);

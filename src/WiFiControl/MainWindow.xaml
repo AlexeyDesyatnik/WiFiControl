@@ -97,6 +97,26 @@
             </DockPanel>
         </Border>
 
+        <!-- Признаки проблем и расхождение -->
+        <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Problems}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="local:ProblemViewModel">
+                    <Border Margin="0,4,0,0" Padding="10,6,8,6" CornerRadius="6" BorderThickness="1"
+                            Background="{DynamicResource SystemFillColorCautionBackgroundBrush}"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Left" Text="&#xE7BA;" FontFamily="{StaticResource Icons}" FontSize="14" Margin="0,2,8,0"
+                                       VerticalAlignment="Top" Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                            <StackPanel>
+                                <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Details}" FontSize="11.5" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
         <TextBlock DockPanel.Dock="Top" Text="Сети рядом" FontSize="13" FontWeight="SemiBold"
                    Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="2,12,0,2" />
 

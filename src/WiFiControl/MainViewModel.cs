@@ -45,6 +45,9 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     [ObservableProperty]
     private string? _error;
 
+    /// <summary>Признаки проблем и расхождение.</summary>
+    public ObservableCollection<ProblemViewModel> Problems { get; } = [];
+
     public ObservableCollection<NetworkRowViewModel> Networks { get; } = [];
 
     /// <summary>Подписка на уведомления Wi-Fi не удалась: окно обновляется только по таймеру и «Обновить».</summary>
@@ -90,7 +93,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
                 _loadAgain = false;
                 try
                 {
-                    Show(await CurrentState.ReadAsync(network, wifi, store.LoadError == null ? store.Profiles : null, CancellationToken.None));
+                    Show(await CurrentState.ReadAsync(network, wifi, store.LoadError == null ? store.Profiles : null, last: null, CancellationToken.None));
                     Error = _scanError ?? _notificationsError;
                 }
                 catch (InvalidOperationException e)
@@ -122,6 +125,10 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         Dns = Join(active?.Dns);
         Proxy = ProxyText(state.Proxy.SystemProxy);
 
+        Problems.Clear();
+        foreach (Problem problem in state.Problems) Problems.Add(ProblemViewModel.From(problem, state));
+        if (state.Mismatch.Count > 0) Problems.Add(ProblemViewModel.FromMismatch(state.ExpectedProfile!, state.Mismatch));
+
         Networks.Clear();
         foreach (NetworkRow row in state.Networks) Networks.Add(new NetworkRowViewModel(row));
     }
@@ -140,6 +147,37 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         if (proxy.AutoConfigUrl.Length > 0) parts.Add("сценарий " + proxy.AutoConfigUrl);
         return parts.Count == 0 ? "нет" : string.Join(" · ", parts);
     }
+}
+
+/// <summary>Признак проблемы или расхождение в блоке «Сейчас».</summary>
+internal sealed record ProblemViewModel(string Title, string Details)
+{
+    public static ProblemViewModel From(Problem problem, CurrentState state) => problem switch
+    {
+        Problem.NoAddress => new("Адрес не получен", "DHCP в сети не ответил: адреса нет или он 169.254.x.x."),
+        Problem.AddressConflict => new("Конфликт адресов", "В сети есть другой компьютер с таким же адресом."),
+        Problem.NoDefaultRoute => new("Нет маршрута по умолчанию", "Адрес есть, но маршрута в интернет через Wi-Fi-адаптер нет."),
+        Problem.InternetViaEthernet => new("Интернет сейчас идёт через Ethernet",
+            "Через адаптер «" + state.InternetAdapter?.Name + "»: настройки Wi-Fi на интернет не влияют."),
+        _ => throw new ArgumentOutOfRangeException(nameof(problem), problem, null),
+    };
+
+    public static ProblemViewModel FromMismatch(Profile expected, IReadOnlyList<Difference> differences)
+    {
+        return new("Расхождение с профилем «" + expected.Name + "»",
+            "Отличаются: " + string.Join(", ", differences.Select(DifferenceText)) + ".");
+    }
+
+    private static string DifferenceText(Difference difference) => difference switch
+    {
+        Difference.Address => "настройки адреса",
+        Difference.Dns => "DNS",
+        Difference.SystemProxy => "системный прокси",
+        Difference.WinHttpProxy => "WinHTTP-прокси",
+        Difference.ProxyAutoDetect => "включено автоопределение прокси",
+        Difference.ProxyScript => "задан сценарий прокси",
+        _ => throw new ArgumentOutOfRangeException(nameof(difference), difference, null),
+    };
 }
 
 /// <summary>Строка списка сетей.</summary>

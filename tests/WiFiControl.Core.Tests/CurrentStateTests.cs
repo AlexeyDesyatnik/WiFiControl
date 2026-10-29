@@ -16,7 +16,7 @@ public class CurrentStateTests
 
     private Task<CurrentState> ReadAsync(ProfileSet? profiles = null)
     {
-        return CurrentState.ReadAsync(_system, _wifi, profiles ?? _profiles, CancellationToken.None);
+        return CurrentState.ReadAsync(_system, _wifi, profiles ?? _profiles, last: null, CancellationToken.None);
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public class CurrentStateTests
     {
         _wifi.Networks.Add(FakeWifi.Entry("Office", 90));
 
-        CurrentState state = await CurrentState.ReadAsync(_system, _wifi, profiles: null, CancellationToken.None);
+        CurrentState state = await CurrentState.ReadAsync(_system, _wifi, profiles: null, last: null, CancellationToken.None);
 
         NetworkRow row = Assert.Single(state.Networks);
         Assert.Null(row.Profile);
