@@ -53,8 +53,8 @@ public sealed class CurrentState
     /// </summary>
     public Profile? ExpectedProfile { get; private init; }
 
-    /// <summary>Различия с ожидаемым профилем; пусто, если расхождения нет или его не с чем сравнить.</summary>
-    public IReadOnlyList<Difference> Mismatch { get; private init; } = [];
+    /// <summary>Расхождение с ожидаемым профилем; null, если его нет или не с чем сравнить.</summary>
+    public Mismatch? Mismatch { get; private init; }
 
     /// <summary>Видимые сети: текущая первой, остальные по убыванию сигнала.</summary>
     public IReadOnlyList<NetworkRow> Networks { get; private init; } = [];
@@ -90,9 +90,15 @@ public sealed class CurrentState
             InternetAdapter = internetAdapter,
             Problems = FindProblems(currentKey == null ? null : adapter, routes, internetAdapter),
             ExpectedProfile = expected,
-            Mismatch = expected == null || adapter == null ? [] : Model.Mismatch.Find(expected, adapter.Configured, proxy),
+            Mismatch = expected == null || adapter == null ? null : FindMismatch(expected, adapter, proxy),
             Networks = BuildList(entries, currentKey, profiles),
         };
+    }
+
+    private static Mismatch? FindMismatch(Profile expected, Adapter adapter, ProxyState proxy)
+    {
+        IReadOnlyList<Difference> differences = Model.Mismatch.Find(expected, adapter.Configured, proxy);
+        return differences.Count == 0 ? null : new Mismatch(expected, differences);
     }
 
     private static bool IsAdapter(Adapter candidate, Guid id) => Guid.TryParse(candidate.Id, out Guid candidateId) && candidateId == id;

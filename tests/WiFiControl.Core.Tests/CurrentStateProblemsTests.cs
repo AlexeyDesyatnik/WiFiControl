@@ -33,7 +33,7 @@ public class CurrentStateProblemsTests
         CurrentState state = await ReadAsync();
 
         Assert.Empty(state.Problems);
-        Assert.Empty(state.Mismatch);
+        Assert.Null(state.Mismatch);
     }
 
     [Theory]
@@ -129,7 +129,8 @@ public class CurrentStateProblemsTests
         CurrentState state = await ReadAsync();
 
         Assert.Equal(Profile.AutomaticId, state.ExpectedProfile?.Id);
-        Assert.Equal([Difference.Address, Difference.Dns, Difference.SystemProxy], state.Mismatch);
+        Assert.Equal(Profile.AutomaticId, state.Mismatch?.Expected.Id);
+        Assert.Equal([Difference.Address, Difference.Dns, Difference.SystemProxy], state.Mismatch?.Differences);
     }
 
     [Fact]
@@ -141,7 +142,7 @@ public class CurrentStateProblemsTests
         CurrentState state = await ReadAsync(new LastApplication("Office", home));
 
         Assert.Equal(home.Id, state.ExpectedProfile?.Id);
-        Assert.Empty(state.Mismatch);
+        Assert.Null(state.Mismatch);
     }
 
     [Fact]
@@ -152,7 +153,7 @@ public class CurrentStateProblemsTests
         CurrentState state = await CurrentState.ReadAsync(_system, _wifi, profiles: null, last: null, CancellationToken.None);
 
         Assert.Null(state.ExpectedProfile);
-        Assert.Empty(state.Mismatch);
+        Assert.Null(state.Mismatch);
     }
 
     [Fact]
@@ -165,7 +166,7 @@ public class CurrentStateProblemsTests
         CurrentState state = await ReadAsync();
 
         Assert.Null(state.ExpectedProfile);
-        Assert.Empty(state.Mismatch);
+        Assert.Null(state.Mismatch);
     }
 
     private static readonly Guid EthernetId = new("00000000-0000-0000-0000-000000000003");

@@ -127,7 +127,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
         Problems.Clear();
         foreach (Problem problem in state.Problems) Problems.Add(ProblemViewModel.From(problem, state));
-        if (state.Mismatch.Count > 0) Problems.Add(ProblemViewModel.FromMismatch(state.ExpectedProfile!, state.Mismatch));
+        if (state.Mismatch != null) Problems.Add(ProblemViewModel.FromMismatch(state.Mismatch));
 
         Networks.Clear();
         foreach (NetworkRow row in state.Networks) Networks.Add(new NetworkRowViewModel(row));
@@ -162,10 +162,10 @@ internal sealed record ProblemViewModel(string Title, string Details)
         _ => throw new ArgumentOutOfRangeException(nameof(problem), problem, null),
     };
 
-    public static ProblemViewModel FromMismatch(Profile expected, IReadOnlyList<Difference> differences)
+    public static ProblemViewModel FromMismatch(Mismatch mismatch)
     {
-        return new("Расхождение с профилем «" + expected.Name + "»",
-            "Отличаются: " + string.Join(", ", differences.Select(DifferenceText)) + ".");
+        return new("Расхождение с профилем «" + mismatch.Expected.Name + "»",
+            "Отличаются: " + string.Join(", ", mismatch.Differences.Select(DifferenceText)) + ".");
     }
 
     private static string DifferenceText(Difference difference) => difference switch

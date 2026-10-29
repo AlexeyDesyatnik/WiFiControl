@@ -2,6 +2,7 @@ using WiFiControl.Core.Model;
 
 namespace WiFiControl.Core.Tests;
 
+/// <summary>Правила расхождения: что сравнивается с ожидаемым профилем и какой профиль ожидается.</summary>
 public class MismatchTests
 {
     private static ProxyState NoProxy() => new(new SystemProxyState(), new ProxySettings());

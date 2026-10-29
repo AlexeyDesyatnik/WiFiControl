@@ -17,8 +17,9 @@ public enum Difference
     ProxyScript,
 }
 
-/// <summary>Расхождение: сравнение фактических настроек с ожидаемым профилем.</summary>
-public static class Mismatch
+/// <summary>Расхождение: фактические настройки отличаются от ожидаемого профиля.</summary>
+/// <param name="Differences">Различия по порядку <see cref="Difference"/>, хотя бы одно.</param>
+public sealed record Mismatch(Profile Expected, IReadOnlyList<Difference> Differences)
 {
     /// <summary>Профиль последнего применения, если адаптер всё ещё в той же сети, иначе — профиль текущей сети.</summary>
     /// <param name="network">Ключ текущей сети.</param>
