@@ -6,11 +6,15 @@ using WiFiControl.Core.Storage;
 
 namespace WiFiControl;
 
-/// <summary>Главное окно: блок «Сейчас» и список сетей из снимка текущего состояния.</summary>
-internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem wifi, ProfileStore store) : ObservableObject
+/// <summary>
+/// Главное окно: блок «Сейчас» и список сетей из снимка текущего состояния, «Применить профиль…»
+/// и «Применить» у расхождения.
+/// </summary>
+internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem wifi, ProfileStore store, Applier applier) : ObservableObject
 {
     private const string Missing = "—";
 
+    private CurrentState? _state;
     private bool _loading;
     private bool _loadAgain;
     // Отказы, которые удачное чтение не отменяет: их видно, пока причина не уйдёт
@@ -41,6 +45,16 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     [ObservableProperty]
     private string _proxy = Missing;
 
+    /// <summary>Идёт применение: остальные действия недоступны.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanApplyProfile))]
+    [NotifyCanExecuteChangedFor(nameof(RefreshCommand), nameof(ApplyProfileCommand), nameof(ApplyExpectedCommand), nameof(CloseStepsCommand))]
+    private bool _isBusy;
+
+    /// <summary>Заголовок хода применения; null, если хода не видно.</summary>
+    [ObservableProperty]
+    private string? _stepsTitle;
+
     /// <summary>Почему состояние не прочитано; null, если прочитано.</summary>
     [ObservableProperty]
     private string? _error;
@@ -49,6 +63,15 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     public ObservableCollection<ProblemViewModel> Problems { get; } = [];
 
     public ObservableCollection<NetworkRowViewModel> Networks { get; } = [];
+
+    /// <summary>Ход последнего применения по шагам.</summary>
+    public ObservableCollection<StepViewModel> Steps { get; } = [];
+
+    /// <summary>Применить профиль можно: адаптер подключён к известной сети, профили прочитаны, применение не идёт.</summary>
+    public bool CanApplyProfile => !IsBusy && _state?.Adapter != null && _state.Network != null && store.LoadError == null;
+
+    /// <summary>Профили для «Применить профиль…»: «Автоматически» первым.</summary>
+    public IReadOnlyList<Profile> ProfileChoices => store.LoadError == null ? [Profile.Automatic, .. store.Profiles.Profiles] : [];
 
     /// <summary>Подписка на уведомления Wi-Fi не удалась: окно обновляется только по таймеру и «Обновить».</summary>
     public string? NotificationsError
@@ -61,7 +84,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     }
 
     /// <summary>«Обновить»: поиск сетей, затем чтение.</summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(IsIdle))]
     public async Task RefreshAsync()
     {
         try
@@ -77,9 +100,13 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         await LoadAsync();
     }
 
-    /// <summary>Перечитывает состояние без поиска сетей. Вызов во время чтения откладывается до его конца.</summary>
+    /// <summary>
+    /// Перечитывает состояние без поиска сетей. Вызов во время чтения откладывается до его конца,
+    /// во время применения пропускается: применение само перечитывает состояние в конце.
+    /// </summary>
     public async Task LoadAsync()
     {
+        if (IsBusy) return;
         if (_loading)
         {
             _loadAgain = true;
@@ -93,7 +120,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
                 _loadAgain = false;
                 try
                 {
-                    Show(await CurrentState.ReadAsync(network, wifi, store.LoadError == null ? store.Profiles : null, last: null, CancellationToken.None));
+                    Show(await CurrentState.ReadAsync(network, wifi, store.LoadError == null ? store.Profiles : null, applier.Last, CancellationToken.None));
                     Error = _scanError ?? _notificationsError;
                 }
                 catch (InvalidOperationException e)
@@ -108,8 +135,53 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         }
     }
 
+    /// <summary>«Применить профиль…» для текущей сети: привязку не меняет.</summary>
+    [RelayCommand(CanExecute = nameof(CanApply))]
+    private Task ApplyProfileAsync(Profile profile) => ApplyAsync(profile);
+
+    /// <summary>«Применить» у расхождения: ожидаемый профиль заново.</summary>
+    [RelayCommand(CanExecute = nameof(CanApply))]
+    private Task ApplyExpectedAsync() => _state?.Mismatch == null ? Task.CompletedTask : ApplyAsync(_state.Mismatch.Expected);
+
+    [RelayCommand(CanExecute = nameof(IsIdle))]
+    private void CloseSteps()
+    {
+        StepsTitle = null;
+        Steps.Clear();
+    }
+
+    private bool IsIdle() => !IsBusy;
+
+    private bool CanApply() => CanApplyProfile;
+
+    private async Task ApplyAsync(Profile profile)
+    {
+        if (!CanApplyProfile) return;
+        CurrentState state = _state!;
+
+        IsBusy = true;
+        StepsTitle = "Применение профиля «" + profile.Name + "»";
+        Steps.Clear();
+        // Шаги приходят из чужого потока; Progress возвращает их в поток окна по порядку
+        var progress = new Progress<StepResult>(result => Steps.Add(new StepViewModel(result)));
+        try
+        {
+            await applier.ApplyProfileAsync(state.Adapter!, state.Network!, profile, ((IProgress<StepResult>)progress).Report, CancellationToken.None);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+        await LoadAsync();
+    }
+
     private void Show(CurrentState state)
     {
+        _state = state;
+        OnPropertyChanged(nameof(CanApplyProfile));
+        ApplyProfileCommand.NotifyCanExecuteChanged();
+        ApplyExpectedCommand.NotifyCanExecuteChanged();
+
         AdapterName = state.WifiAdapter?.Description ?? "";
         NetworkTitle = state.WifiAdapter == null ? "Wi-Fi-адаптер не найден" : state.Network ?? "Не подключено";
         NetworkProfile = state.Network == null ? ""
@@ -127,7 +199,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
         Problems.Clear();
         foreach (Problem problem in state.Problems) Problems.Add(ProblemViewModel.From(problem, state));
-        if (state.Mismatch != null) Problems.Add(ProblemViewModel.FromMismatch(state.Mismatch));
+        if (state.Mismatch != null) Problems.Add(ProblemViewModel.FromMismatch(state.Mismatch, ApplyExpectedCommand));
 
         Networks.Clear();
         foreach (NetworkRow row in state.Networks) Networks.Add(new NetworkRowViewModel(row));
@@ -150,7 +222,8 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 }
 
 /// <summary>Признак проблемы или расхождение в блоке «Сейчас».</summary>
-internal sealed record ProblemViewModel(string Title, string Details)
+/// <param name="Apply">«Применить» у расхождения; null у остальных признаков.</param>
+internal sealed record ProblemViewModel(string Title, string Details, IRelayCommand? Apply = null)
 {
     public static ProblemViewModel From(Problem problem, CurrentState state) => problem switch
     {
@@ -162,10 +235,10 @@ internal sealed record ProblemViewModel(string Title, string Details)
         _ => throw new ArgumentOutOfRangeException(nameof(problem), problem, null),
     };
 
-    public static ProblemViewModel FromMismatch(Mismatch mismatch)
+    public static ProblemViewModel FromMismatch(Mismatch mismatch, IRelayCommand apply)
     {
         return new("Расхождение с профилем «" + mismatch.Expected.Name + "»",
-            "Отличаются: " + string.Join(", ", mismatch.Differences.Select(DifferenceText)) + ".");
+            "Отличаются: " + string.Join(", ", mismatch.Differences.Select(DifferenceText)) + ".", apply);
     }
 
     private static string DifferenceText(Difference difference) => difference switch
@@ -177,6 +250,30 @@ internal sealed record ProblemViewModel(string Title, string Details)
         Difference.ProxyAutoDetect => "включено автоопределение прокси",
         Difference.ProxyScript => "задан сценарий прокси",
         _ => throw new ArgumentOutOfRangeException(nameof(difference), difference, null),
+    };
+}
+
+/// <summary>Шаг в ходе применения.</summary>
+internal sealed class StepViewModel(StepResult result)
+{
+    public string Title => result.Title;
+
+    public string Message => result.Message ?? "";
+
+    public StepOutcome Outcome => result.Outcome;
+
+    public string Icon => result.Outcome switch
+    {
+        StepOutcome.Done => "",
+        StepOutcome.Warning => "",
+        _ => "",
+    };
+
+    public string OutcomeText => result.Outcome switch
+    {
+        StepOutcome.Done => "Выполнено",
+        StepOutcome.Warning => "Предупреждение",
+        _ => "Ошибка",
     };
 }
 

@@ -33,7 +33,27 @@ public class MismatchTests
         // Например, «Применить профиль…» другого профиля к текущей сети
         (ProfileSet profiles, _, Profile home) = BoundOffice();
 
-        Assert.Equal(home.Id, Mismatch.ExpectedProfile(new LastApplication("Office", home), "Office", profiles).Id);
+        Assert.Equal(home.Id, Mismatch.ExpectedProfile(new LastApplication("Office", home.Id), "Office", profiles).Id);
+    }
+
+    [Fact]
+    public void Last_application_of_a_deleted_profile_gives_the_current_networks()
+    {
+        (ProfileSet profiles, Profile office, Profile home) = BoundOffice();
+        profiles.Remove(home.Id);
+
+        Assert.Equal(office.Id, Mismatch.ExpectedProfile(new LastApplication("Office", home.Id), "Office", profiles).Id);
+    }
+
+    [Fact]
+    public void Last_application_gives_the_profile_as_edited_since()
+    {
+        // Правка настроек профиля даёт расхождение, а не вопрос о применении
+        (ProfileSet profiles, _, Profile home) = BoundOffice();
+        home.Name = "Дом 2";
+        Assert.Empty(profiles.Update(home));
+
+        Assert.Equal("Дом 2", Mismatch.ExpectedProfile(new LastApplication("Office", home.Id), "Office", profiles).Name);
     }
 
     [Fact]
@@ -41,9 +61,9 @@ public class MismatchTests
     {
         (ProfileSet profiles, Profile office, Profile home) = BoundOffice();
 
-        Assert.Equal(office.Id, Mismatch.ExpectedProfile(new LastApplication("Home", home), "Office", profiles).Id);
+        Assert.Equal(office.Id, Mismatch.ExpectedProfile(new LastApplication("Home", home.Id), "Office", profiles).Id);
         // Ключи сетей сравниваются с учётом регистра (ADR 0007)
-        Assert.Equal(office.Id, Mismatch.ExpectedProfile(new LastApplication("office", home), "Office", profiles).Id);
+        Assert.Equal(office.Id, Mismatch.ExpectedProfile(new LastApplication("office", home.Id), "Office", profiles).Id);
     }
 
     [Fact]

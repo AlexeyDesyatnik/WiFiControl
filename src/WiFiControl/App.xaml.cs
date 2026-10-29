@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
+using WiFiControl.Core.Model;
 using WiFiControl.Core.Storage;
 using WiFiControl.Core.Windows;
 
@@ -17,7 +18,8 @@ public partial class App : Application
         store.Load();
 
         var wifi = new WindowsWifiSystem();
-        var window = new MainWindow(new MainViewModel(new WindowsNetworkSystem(), wifi, store), wifi);
+        var network = new WindowsNetworkSystem();
+        var window = new MainWindow(new MainViewModel(network, wifi, store, new Applier(network, TimeProvider.System)), wifi);
         MainWindow = window;
         window.Show();
     }

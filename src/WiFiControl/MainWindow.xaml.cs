@@ -1,5 +1,7 @@
 using System.Net.NetworkInformation;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 using WiFiControl.Core.Model;
 
@@ -75,5 +77,17 @@ internal partial class MainWindow : Window
     private async void LoadIfVisible()
     {
         if (Shown) await _model.LoadAsync();
+    }
+
+    // Список профилей собирается при нажатии: профили могли измениться
+    private void OnApplyProfileClick(object sender, RoutedEventArgs e)
+    {
+        var button = (Button)sender;
+        var menu = new ContextMenu { PlacementTarget = button, Placement = PlacementMode.Bottom };
+        foreach (Profile profile in _model.ProfileChoices)
+        {
+            menu.Items.Add(new MenuItem { Header = profile.Name, Command = _model.ApplyProfileCommand, CommandParameter = profile });
+        }
+        menu.IsOpen = true;
     }
 }

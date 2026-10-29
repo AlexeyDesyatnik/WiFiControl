@@ -69,6 +69,13 @@ public static class Ipv4
         return Format(prefix == 0 ? 0 : uint.MaxValue << (32 - prefix));
     }
 
+    /// <summary>Самоназначенный адрес 169.254.x.x: DHCP не ответил.</summary>
+    /// <param name="address">Адрес с длиной префикса или без неё.</param>
+    public static bool IsSelfAssigned(string address)
+    {
+        return TryParse(address.Split('/')[0], out uint value) && (value >> 16) == (169u << 8 | 254u);
+    }
+
     /// <summary>Маска в любой записи — 255.255.255.0, /24 или 24 — приводится к виду 255.255.255.0.</summary>
     public static bool TryParseMask(string? text, out string mask)
     {

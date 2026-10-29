@@ -21,11 +21,15 @@ public enum Difference
 /// <param name="Differences">Различия по порядку <see cref="Difference"/>, хотя бы одно.</param>
 public sealed record Mismatch(Profile Expected, IReadOnlyList<Difference> Differences)
 {
-    /// <summary>Профиль последнего применения, если адаптер всё ещё в той же сети, иначе — профиль текущей сети.</summary>
+    /// <summary>
+    /// Профиль последнего применения, если адаптер всё ещё в той же сети, иначе — профиль текущей сети.
+    /// Профиль последнего применения берётся в нынешнем виде; если его удалили — профиль текущей сети.
+    /// </summary>
     /// <param name="network">Ключ текущей сети.</param>
     public static Profile ExpectedProfile(LastApplication? last, string network, ProfileSet profiles)
     {
-        return last != null && NetworkKey.Comparer.Equals(last.Network, network) ? last.Profile : profiles.ProfileFor(network);
+        Profile? applied = last != null && NetworkKey.Comparer.Equals(last.Network, network) ? profiles.Find(last.ProfileId) : null;
+        return applied ?? profiles.ProfileFor(network);
     }
 
     /// <param name="configured">Настройки IPv4, настроенные на адаптере, а не полученные: адрес по DHCP — не расхождение с автоматическим.</param>

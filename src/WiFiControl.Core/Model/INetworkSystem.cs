@@ -39,6 +39,18 @@ public interface INetworkSystem
     /// к внешнему адресу (ADR 0006). Ничего не отправляет. null, если маршрута нет.
     /// </summary>
     Task<Guid?> ReadInternetAdapterAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Добавляет маршрут по умолчанию через адаптер только в действующие настройки, как
+    /// <c>netsh interface ipv4 add route 0.0.0.0/0 … store=active</c>: в постоянных он уже записан (ADR 0004).
+    /// </summary>
+    Task AddDefaultRouteAsync(Adapter adapter, string gateway, CancellationToken cancellationToken);
+
+    /// <summary>Одна попытка ping; true, если ответ пришёл за <paramref name="timeout"/>.</summary>
+    Task<bool> PingAsync(string address, TimeSpan timeout, CancellationToken cancellationToken);
+
+    /// <summary>true, если TCP-соединение с портом установилось за <paramref name="timeout"/>. Соединение сразу закрывается.</summary>
+    Task<bool> CanConnectAsync(string host, int port, TimeSpan timeout, CancellationToken cancellationToken);
 }
 
 /// <summary>Маршрут по умолчанию IPv4.</summary>

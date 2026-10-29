@@ -107,6 +107,18 @@
                         <DockPanel>
                             <TextBlock DockPanel.Dock="Left" Text="&#xE7BA;" FontFamily="{StaticResource Icons}" FontSize="14" Margin="0,2,8,0"
                                        VerticalAlignment="Top" Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                            <Button DockPanel.Dock="Right" Content="Применить" Command="{Binding Apply}" Margin="8,0,0,0" Padding="10,3"
+                                    VerticalAlignment="Center">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Apply}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
                             <StackPanel>
                                 <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold" />
                                 <TextBlock Text="{Binding Details}" FontSize="11.5" TextWrapping="Wrap" />
@@ -116,6 +128,71 @@
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>
+
+        <!-- Ход применения по шагам -->
+        <Border DockPanel.Dock="Top" Margin="0,4,0,0" Padding="10,6,8,8" CornerRadius="6" BorderThickness="1"
+                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding StepsTitle}" Value="{x:Null}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <StackPanel>
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Command="{Binding CloseStepsCommand}" ToolTip="Закрыть" Padding="6,4">
+                        <TextBlock Text="&#xE711;" FontFamily="{StaticResource Icons}" FontSize="10" />
+                    </Button>
+                    <TextBlock Text="{Binding StepsTitle}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" />
+                </DockPanel>
+                <ItemsControl ItemsSource="{Binding Steps}" Margin="0,4,0,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="local:StepViewModel">
+                            <DockPanel Margin="0,2">
+                                <TextBlock DockPanel.Dock="Left" Text="{Binding Icon}" ToolTip="{Binding OutcomeText}" FontFamily="{StaticResource Icons}"
+                                           FontSize="12" Margin="0,2,8,0" VerticalAlignment="Top">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{DynamicResource SystemFillColorSuccessBrush}" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Outcome}" Value="Warning">
+                                                    <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCautionBrush}" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Outcome}" Value="Error">
+                                                    <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Title}" FontSize="12.5" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding Message}" FontSize="11.5" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Message}" Value="">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
+                            </DockPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="Выполняется…" Style="{StaticResource Secondary}" Margin="20,2,0,0"
+                           Visibility="{Binding IsBusy, Converter={StaticResource Visible}}" />
+            </StackPanel>
+        </Border>
 
         <TextBlock DockPanel.Dock="Top" Text="Сети рядом" FontSize="13" FontWeight="SemiBold"
                    Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="2,12,0,2" />
@@ -147,6 +224,11 @@
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
+                        <!-- У текущей сети вместо «Подключиться» -->
+                        <Button DockPanel.Dock="Right" Content="Применить профиль…" Click="OnApplyProfileClick" Margin="8,0,0,0" Padding="8,2"
+                                FontSize="12" VerticalAlignment="Center"
+                                Visibility="{Binding IsCurrent, Converter={StaticResource Visible}}"
+                                IsEnabled="{Binding DataContext.CanApplyProfile, RelativeSource={RelativeSource AncestorType=Window}}" />
                         <TextBlock DockPanel.Dock="Right" Text="{Binding Profile}" ToolTip="{Binding Profile}" Style="{StaticResource Secondary}"
                                    MaxWidth="170" Margin="8,1,0,0" />
                         <Border DockPanel.Dock="Right" Margin="8,0,0,0" Padding="6,1" CornerRadius="4" VerticalAlignment="Center"

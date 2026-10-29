@@ -110,4 +110,11 @@ public class NetshTests
 
         Assert.Equal(["interface ipv4 set address " + Name + " source=dhcp"], Commands(current, target));
     }
+
+    [Fact]
+    public void Default_route_is_added_to_active_settings_only()
+    {
+        Assert.Equal("interface ipv4 add route prefix=0.0.0.0/0 interface=\"Беспроводная сеть\" nexthop=10.68.12.1 store=active",
+            Netsh.AddDefaultRouteCommand("Беспроводная сеть", "10.68.12.1"));
+    }
 }

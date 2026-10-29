@@ -76,6 +76,15 @@ internal static class Netsh
         return commands;
     }
 
+    /// <summary>
+    /// Маршрут по умолчанию через адаптер только в действующих настройках: в постоянных он уже записан вместе
+    /// со статическим шлюзом, но после первого подключения может пропасть (ADR 0004).
+    /// </summary>
+    public static string AddDefaultRouteCommand(string adapterName, string gateway)
+    {
+        return "interface ipv4 add route prefix=0.0.0.0/0 interface=\"" + adapterName + "\" nexthop=" + gateway + " store=active";
+    }
+
     /// <summary>Выполняет команду скрытым процессом и возвращает описание сбоя; null, если netsh завершился успешно.</summary>
     public static async Task<string?> RunAsync(string arguments, CancellationToken cancellationToken)
     {

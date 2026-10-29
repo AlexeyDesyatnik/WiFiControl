@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Management;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security;
 using WiFiControl.Core.Model;
@@ -148,6 +149,50 @@ public sealed class WindowsNetworkSystem : INetworkSystem
                 throw new InvalidOperationException("Windows не сообщила, через какой адаптер идёт интернет: " + e.Message, e);
             }
         }, cancellationToken);
+    }
+
+    public async Task AddDefaultRouteAsync(Adapter adapter, string gateway, CancellationToken cancellationToken)
+    {
+        string? failure = await Netsh.RunAsync(Netsh.AddDefaultRouteCommand(adapter.Name, gateway), cancellationToken).ConfigureAwait(false);
+        if (failure != null)
+            throw new InvalidOperationException("Windows не дала добавить маршрут по умолчанию через «" + adapter.Name + "»: " + failure);
+    }
+
+    public async Task<bool> PingAsync(string address, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        if (!IPAddress.TryParse(address, out IPAddress? target)) throw new InvalidOperationException("«" + address + "» — не адрес IPv4, ping невозможен.");
+
+        using var ping = new Ping();
+        try
+        {
+            PingReply reply = await ping.SendPingAsync(target, timeout, cancellationToken: cancellationToken).ConfigureAwait(false);
+            return reply.Status == IPStatus.Success;
+        }
+        catch (PingException)
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> CanConnectAsync(string host, int port, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        using var client = new TcpClient();
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        limit.CancelAfter(timeout);
+        try
+        {
+            await client.ConnectAsync(host, port, limit.Token).ConfigureAwait(false);
+            return true;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+        // Отказ в соединении, имя не найдено
+        catch (SocketException)
+        {
+            return false;
+        }
     }
 
     private static async Task ReturnToDhcpAsync(Adapter adapter, List<string> failures, CancellationToken cancellationToken)

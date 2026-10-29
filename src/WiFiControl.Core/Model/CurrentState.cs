@@ -113,7 +113,7 @@ public sealed class CurrentState
             // Без адреса нет и маршрута, поэтому о маршруте говорим только при рабочем адресе.
             if (adapter.Active.HasConflict)
                 problems.Add(Problem.AddressConflict);
-            else if (!adapter.Active.Addresses.Any(address => !IsSelfAssigned(address)))
+            else if (!adapter.Active.Addresses.Any(address => !Ipv4.IsSelfAssigned(address)))
                 problems.Add(Problem.NoAddress);
             else if (!routes.Any(route => IsAdapter(adapter, route.Adapter)))
                 problems.Add(Problem.NoDefaultRoute);
@@ -122,12 +122,6 @@ public sealed class CurrentState
         if (internetAdapter != null && internetAdapter.IsPhysical && !internetAdapter.IsWireless)
             problems.Add(Problem.InternetViaEthernet);
         return problems;
-    }
-
-    /// <param name="address">Адрес с длиной префикса или без неё.</param>
-    private static bool IsSelfAssigned(string address)
-    {
-        return Ipv4.TryParse(address.Split('/')[0], out uint value) && (value >> 16) == (169u << 8 | 254u);
     }
 
     private static List<NetworkRow> BuildList(IReadOnlyList<VisibleNetwork> entries, string? current, ProfileSet? profiles)

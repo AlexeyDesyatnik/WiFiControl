@@ -137,9 +137,10 @@ public class CurrentStateProblemsTests
     public async Task Last_application_in_the_same_network_is_the_expected_profile()
     {
         var home = new Profile { Name = "Дом", Ipv4 = FakeSystem.Static("192.168.1.37", "192.168.1.1", "192.168.1.1") };
+        Assert.Empty(_profiles.Add(home));
         _adapter.Configured = home.Ipv4.Clone();
 
-        CurrentState state = await ReadAsync(new LastApplication("Office", home));
+        CurrentState state = await ReadAsync(new LastApplication("Office", home.Id));
 
         Assert.Equal(home.Id, state.ExpectedProfile?.Id);
         Assert.Null(state.Mismatch);
