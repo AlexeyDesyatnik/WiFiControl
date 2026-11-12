@@ -1,22 +1,18 @@
 ---
 name: to-spec
-description: "Turn the current conversation into a spec and publish it to the project issue tracker: no interview, just synthesis of what you've already discussed."
+description: "Synthesize agreed decisions into a spec and publish it to the project issue tracker. Ask only about material uncertainties."
 disable-model-invocation: true
 ---
 
-This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user; just synthesize what you already know.
-
-The issue tracker and triage label vocabulary should have been provided to you. If not, tell the user to run `/setup-matt-pocock-skills`.
+Synthesize the spec from decisions already made in the conversation and evidence in the repository. Ask a focused question only when a material uncertainty affects scope, behavior, or verification and cannot be resolved from those sources.
 
 ## Process
 
 1. Explore the repo to understand the current state of the codebase, if you haven't already. Use the project's domain glossary vocabulary throughout the spec, and respect any ADRs in the area you're touching.
 
-2. Sketch out the seams at which you're going to test the feature. Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better - the ideal number is one.
+2. Use the existing public test seams and the testing decisions already agreed. Record any proposed changes to a public contract or material changes to testing scope and resolve consequential uncertainty before publishing.
 
-Check with the user that these seams match their expectations.
-
-3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+3. Write the spec using the template below, then publish it using the repository's issue tracker instructions. Apply `ready-for-agent` if that label is configured.
 
 <spec-template>
 
@@ -28,17 +24,9 @@ The problem that the user is facing, from the user's perspective.
 
 The solution to the problem, from the user's perspective.
 
-## User Stories
+## Requirements
 
-A LONG, numbered list of user stories. Each user story should be in the format of:
-
-1. As an <actor>, I want a <feature>, so that <benefit>
-
-<user-story-example>
-1. As a mobile bank customer, I want to see balance on my accounts, so that I can make better informed decisions about my spending
-</user-story-example>
-
-This list of user stories should be extremely extensive and cover all aspects of the feature.
+List the smallest set of user-facing requirements and acceptance criteria that covers the agreed behavior. Use a user story where it clarifies the actor or outcome.
 
 ## Implementation Decisions
 
@@ -58,11 +46,7 @@ Exception: if a prototype produced a snippet that encodes a decision more precis
 
 ## Testing Decisions
 
-A list of testing decisions that were made. Include:
-
-- A description of what makes a good test (only test external behavior, not implementation details)
-- Which modules will be tested
-- Prior art for the tests (i.e. similar types of tests in the codebase)
+Record the behavior to verify, the existing public seams and relevant test examples, and any agreed manual checks or testing limitations.
 
 ## Out of Scope
 

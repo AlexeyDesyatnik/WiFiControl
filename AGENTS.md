@@ -1,6 +1,6 @@
 ## Project status
 
-The recon build is done (`docs/recon.md`, issue #1); its manual runs are pending (`docs/recon-checklist.md`). The core library is done (stage 2, issue #10). The main tool is in stage 3: the window and switching. Start with `docs/roadmap.md`.
+The recon build and stage 2 of the core are complete. Stage 3 of the main tool is in progress. See the [roadmap](docs/roadmap.md) for implementation status and manual check results.
 
 ## Language
 
@@ -8,11 +8,11 @@ Docs, UI texts and code comments are in Russian. Identifiers are in English.
 
 ## Domain docs
 
-Single-context: one `GLOSSARY.md` at the repo root and ADRs in `docs/adr/`. Read the glossary and the ADRs touching your area before exploring or changing code; use glossary terms, not the synonyms it lists under _Avoid_. If your change contradicts an ADR, say so explicitly instead of silently overriding it.
+The [glossary](GLOSSARY.md) is at the repo root and [ADRs](docs/adr/) are in `docs/adr/`. Read the glossary and relevant ADRs before exploring or changing code. Use project terms and flag any ADR conflict explicitly. See the [domain documentation rules](docs/agents/domain.md).
 
 ## Predecessor: NetSwitch
 
-Much of the core (IPv4 parsing and validation, netsh commands, DHCP without a connection, system and WinHTTP proxy writing, the step-based applier with undo, the `INetworkSystem` + fake-system test approach, atomic JSON store) is ported from NetSwitch: https://github.com/AlexeyDesyatnik/NetSwitch. Read its ADRs before changing anything in how settings are written. Do not modify the NetSwitch repo from this project.
+The core inherits settings writes and other behavior from [NetSwitch](https://github.com/AlexeyDesyatnik/NetSwitch). Start with [WiFiControl ADR 0003](docs/adr/0003-settings-written-as-in-netswitch.md). For changes to the IPv4 write mechanism or DHCP restoration, read NetSwitch ADR 0002 or 0003 respectively, as referenced there. For other inherited behavior, consult NetSwitch primary sources when local docs are insufficient. Do not modify the NetSwitch repository.
 
 ## Build and test
 
@@ -40,7 +40,3 @@ Finishing an issue, in this order:
 
 1. After pushing to `main`, wait for the CI run of that commit (`gh run list --commit <sha>`, then `gh run watch <id> --exit-status`). Work goes straight to `main` without pull requests, so nothing else watches CI. If it fails, fix it first.
 2. Only then close the issue or move on. When closing, tick every met acceptance criterion in the issue body itself (`gh issue edit --body-file`), not only in a comment: the body shows progress on the issue and in the parent's sub-issues. Leave unmet ones unticked and say why.
-
-### Domain docs
-
-Single-context: one `GLOSSARY.md` at the repo root and ADRs in `docs/adr/`. See `docs/agents/domain.md`.
