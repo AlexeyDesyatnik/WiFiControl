@@ -185,6 +185,31 @@ internal partial class MainWindow : Window
         return false;
     }
 
+    private void OnChooseBindingClick(object sender, RoutedEventArgs e)
+    {
+        if (!_model.CanUseNetworkProfiles || _model.SelectedWifiAdapter is not { } adapter) return;
+        var button = (Button)sender;
+        var row = (NetworkRowViewModel)button.DataContext;
+        var menu = new ContextMenu { PlacementTarget = button, Placement = PlacementMode.Bottom };
+        AddChoice("Без привязки", null);
+        foreach (Profile profile in _model.ProfileChoices) AddChoice("«" + profile.Name + "»", profile.Id);
+        menu.IsOpen = true;
+
+        void AddChoice(string name, Guid? profileId)
+        {
+            var item = new MenuItem
+            {
+                Header = new TextBlock { Text = name },
+                IsCheckable = true,
+                IsChecked = profileId == row.BindingProfileId,
+            };
+            item.Click += async (_, _) => await _model.ChangeBindingAsync(row.Name, profileId, adapter.Id,
+                profile => MessageBox.Show(this, "Применить профиль «" + profile.Name + "» к текущей сети сейчас?",
+                    "WiFiControl", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes);
+            menu.Items.Add(item);
+        }
+    }
+
     // Список профилей собирается при нажатии: профили могли измениться
     private void OnApplyProfileClick(object sender, RoutedEventArgs e)
     {

@@ -119,6 +119,54 @@ public class ProfileSetTests
     }
 
     [Fact]
+    public void Changing_the_current_network_binding_changes_its_profile()
+    {
+        var set = new ProfileSet();
+        Profile home = Added(set, "Дом");
+        Profile office = Added(set, "Офис");
+        set.Bind("Office", home.Id);
+
+        Assert.True(set.ChangeBinding("Office", office.Id, currentNetwork: "Office"));
+        Assert.Equal(office.Id, set.ProfileFor("Office").Id);
+    }
+
+    [Theory]
+    [InlineData("Office")]
+    [InlineData(null)]
+    public void Binding_another_network_does_not_change_the_current_profile(string? currentNetwork)
+    {
+        var set = new ProfileSet();
+        Profile office = Added(set, "Офис");
+
+        Assert.False(set.ChangeBinding("office", office.Id, currentNetwork));
+        Assert.Equal(office.Id, set.ProfileFor("office").Id);
+    }
+
+    [Fact]
+    public void Removing_the_current_network_binding_changes_its_profile_to_the_default()
+    {
+        var set = new ProfileSet();
+        Profile home = Added(set, "Дом");
+        set.DefaultProfileId = home.Id;
+        set.Bind("Office", Profile.AutomaticId);
+
+        Assert.True(set.ChangeBinding("Office", null, currentNetwork: "Office"));
+        Assert.Empty(set.Bindings);
+        Assert.Equal(home.Id, set.ProfileFor("Office").Id);
+    }
+
+    [Fact]
+    public void Binding_the_current_network_to_the_default_keeps_its_profile_and_creates_a_binding()
+    {
+        var set = new ProfileSet();
+        Profile office = Added(set, "Офис");
+        set.DefaultProfileId = office.Id;
+
+        Assert.False(set.ChangeBinding("Office", office.Id, currentNetwork: "Office"));
+        Assert.Equal(office.Id, set.Bindings["Office"]);
+    }
+
+    [Fact]
     public void Removing_a_profile_returns_its_networks_and_drops_their_bindings()
     {
         var set = new ProfileSet();

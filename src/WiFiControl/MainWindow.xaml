@@ -344,8 +344,12 @@
                                 FontSize="12" VerticalAlignment="Center"
                                 Visibility="{Binding IsCurrent, Converter={StaticResource Visible}}"
                                 IsEnabled="{Binding DataContext.CanApplyProfile, RelativeSource={RelativeSource AncestorType=Window}}" />
-                        <TextBlock DockPanel.Dock="Right" Text="{Binding Profile}" ToolTip="{Binding Profile}" Style="{StaticResource Secondary}"
-                                   MaxWidth="170" Margin="8,1,0,0" />
+                        <Button DockPanel.Dock="Right" Click="OnChooseBindingClick" Margin="8,0,0,0" Padding="8,2"
+                                FontSize="12" MaxWidth="170" VerticalAlignment="Center"
+                                ToolTip="Выбрать привязку сети" AutomationProperties.Name="Выбрать привязку сети"
+                                IsEnabled="{Binding DataContext.CanUseNetworkProfiles, RelativeSource={RelativeSource AncestorType=Window}}">
+                            <TextBlock Text="{Binding Profile}" TextTrimming="CharacterEllipsis" />
+                        </Button>
                         <Border DockPanel.Dock="Right" Margin="8,0,0,0" Padding="6,1" CornerRadius="4" VerticalAlignment="Center"
                                 Background="{DynamicResource AccentFillColorDefaultBrush}"
                                 Visibility="{Binding IsCurrent, Converter={StaticResource Visible}}">

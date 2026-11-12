@@ -74,8 +74,20 @@ public sealed class ProfileStore
         }
     }
 
+    /// <summary>Сохраняет изменённую привязку и возвращает, изменился ли профиль для текущей сети.</summary>
+    public bool ChangeBinding(string network, Guid? profileId, string? currentNetwork)
+    {
+        ProfileSet updated = Profiles.Copy();
+        bool affectsCurrent = updated.ChangeBinding(network, profileId, currentNetwork);
+        Save(updated);
+        Profiles = updated;
+        return affectsCurrent;
+    }
+
     /// <summary>Записывает во временный файл рядом, затем перемещает его поверх прежнего.</summary>
-    public void Save()
+    public void Save() => Save(Profiles);
+
+    private void Save(ProfileSet profiles)
     {
         if (!_loaded) throw new InvalidOperationException("Файл ещё не прочитан: без Load сохранение затёрло бы его пустым набором.");
         if (LoadError != null)
@@ -84,9 +96,9 @@ public sealed class ProfileStore
         var file = new StoredFile
         {
             Version = FormatVersion,
-            Profiles = Profiles.Profiles.Select(FromProfile).ToList<StoredProfile?>(),
-            Bindings = Profiles.Bindings.Select(binding => new StoredBinding { Network = binding.Key, Profile = binding.Value }).ToList<StoredBinding?>(),
-            DefaultProfile = Profiles.DefaultProfileId,
+            Profiles = profiles.Profiles.Select(FromProfile).ToList<StoredProfile?>(),
+            Bindings = profiles.Bindings.Select(binding => new StoredBinding { Network = binding.Key, Profile = binding.Value }).ToList<StoredBinding?>(),
+            DefaultProfile = profiles.DefaultProfileId,
         };
 
         Directory.CreateDirectory(_folder);

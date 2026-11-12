@@ -30,6 +30,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     private string? _notificationsError;
     private string? _autoConnectError;
     private string? _adapterSaveError;
+    private string? _bindingError;
 
     [ObservableProperty]
     private string _adapterName = "";
@@ -112,8 +113,8 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     public bool CanUseWifi => !IsBusy && !_stateReadFailed && _displayedWifiPreference == _preferredWifiAdapter
         && _state is { WifiAdapter: { IsRadioOn: not false }, NetworkReadError: null, LocationAccessDenied: false };
 
-    /// <summary>Профили для «Применить профиль…»: «Автоматически» первым.</summary>
-    public IReadOnlyList<Profile> ProfileChoices => CanApplyProfile ? [Profile.Automatic, .. store.Profiles.Profiles] : [];
+    /// <summary>Профили для меню в строке сети: «Автоматически» первым.</summary>
+    public IReadOnlyList<Profile> ProfileChoices => CanUseNetworkProfiles ? [Profile.Automatic, .. store.Profiles.Profiles] : [];
 
     /// <summary>Подписка на уведомления Wi-Fi не удалась: окно обновляется только по таймеру и «Обновить».</summary>
     public string? NotificationsError
@@ -145,6 +146,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     private async Task ReloadProfilesAsync()
     {
         if (IsBusy) return;
+        _bindingError = null;
         store.Load();
         OnPropertyChanged(nameof(ProfileLoadError));
         OnPropertyChanged(nameof(CanEditProfiles));
@@ -156,7 +158,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     [RelayCommand(CanExecute = nameof(IsIdle))]
     public async Task RefreshAsync()
     {
-        _autoConnectError = null;
+        _autoConnectError = _bindingError = null;
         Guid? preference = _preferredWifiAdapter;
         string? scanError = null;
         try
@@ -188,7 +190,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         }
 
         _preferredWifiAdapter = adapter.Id;
-        _adapterSaveError = _autoConnectError = _scanError = null;
+        _adapterSaveError = _autoConnectError = _scanError = _bindingError = null;
         PasswordRejected = null;
         NotifyNetworkActions();
         return true;
@@ -225,7 +227,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
                     _stateReadFailed = false;
                     if (state.LocationAccessDenied) _scanError = null;
                     Show(state);
-                    Error = _adapterSaveError ?? _autoConnectError ?? state.NetworkReadError ?? state.WindowsProfilesReadError
+                    Error = _bindingError ?? _adapterSaveError ?? _autoConnectError ?? state.NetworkReadError ?? state.WindowsProfilesReadError
                         ?? (state.LocationAccessDenied ? null :
                             (state.WifiAdapter is { IsRadioOn: not false } ? _scanError : null) ?? _notificationsError);
                 }
@@ -263,6 +265,65 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
             IsBusy = false;
         }
         await LoadAsync();
+    }
+
+    public async Task ChangeBindingAsync(string networkKey, Guid? profileId, Guid adapterId, Func<Profile, bool> confirmApply)
+    {
+        if (!CanUseNetworkProfiles || SelectedWifiAdapter?.Id != adapterId) return;
+        ProfileSet profiles = store.Profiles;
+        if (profileId is { } id && profiles.Find(id) == null) return;
+        Guid? previous = profiles.Bindings.TryGetValue(networkKey, out Guid boundId) ? boundId : null;
+        if (previous == profileId) return;
+
+        IsBusy = true;
+        _bindingError = null;
+        Adapter? adapter = _state?.Adapter;
+        Profile? profileToApply = null;
+        try
+        {
+            string? currentNetwork = await ReadCurrentNetworkKeyAsync(adapterId);
+            bool affectsCurrent;
+            try
+            {
+                affectsCurrent = store.ChangeBinding(networkKey, profileId, currentNetwork);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                Error = _bindingError = "Не удалось сохранить привязку: " + e.Message;
+                return;
+            }
+
+            if (affectsCurrent)
+            {
+                Profile profile = store.Profiles.ProfileFor(networkKey);
+                if (confirmApply(profile))
+                {
+                    if (adapter == null)
+                        _bindingError = "Привязка сохранена, но не удалось прочитать настройки Wi-Fi-адаптера для применения.";
+                    else if (!NetworkKey.Comparer.Equals(currentNetwork, await ReadCurrentNetworkKeyAsync(adapterId)))
+                        _bindingError = "Привязка сохранена, но текущая сеть изменилась. Профиль не применён.";
+                    else
+                        profileToApply = profile;
+                }
+            }
+        }
+        catch (InvalidOperationException e)
+        {
+            _bindingError = e.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+
+        if (profileToApply != null) await ApplyAsync(adapter!, networkKey, profileToApply);
+        else await LoadAsync();
+    }
+
+    private async Task<string?> ReadCurrentNetworkKeyAsync(Guid adapterId)
+    {
+        byte[]? ssid = await wifi.ReadCurrentNetworkAsync(adapterId, CancellationToken.None);
+        return ssid == null ? null : NetworkKey.FromBytes(ssid);
     }
 
     /// <summary>«Применить профиль…» для текущей сети: привязку не меняет.</summary>
@@ -343,9 +404,12 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     {
         if (!CanApplyProfile) return Task.CompletedTask;
         CurrentState state = _state!;
-        return RunAsync("Применение профиля «" + profile.Name + "»",
-            report => applier.ApplyProfileAsync(state.Adapter!, state.Network!, profile, report, CancellationToken.None));
+        return ApplyAsync(state.Adapter!, state.Network!, profile);
     }
+
+    private Task ApplyAsync(Adapter adapter, string networkKey, Profile profile) =>
+        RunAsync("Применение профиля «" + profile.Name + "»",
+            report => applier.ApplyProfileAsync(adapter, networkKey, profile, report, CancellationToken.None));
 
     /// <summary>Переключение; если Windows отвергла пароль, у хода появляется «Ввести пароль заново».</summary>
     private Task SwitchAsync(PasswordRetry retry, Profile profile, Func<Action<StepResult>, Task<SwitchResult>> run)
@@ -533,6 +597,8 @@ internal sealed class NetworkRowViewModel(NetworkRow row)
     public bool IsCurrent => row.IsCurrent;
 
     public bool IsSecured => row.Security != WifiSecurity.Open;
+
+    public Guid? BindingProfileId => row.IsBound ? row.Profile?.Id : null;
 
     public string Security => row.Security switch
     {

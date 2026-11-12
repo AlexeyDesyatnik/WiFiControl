@@ -97,6 +97,32 @@ public sealed class ProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public void Saved_binding_is_published_without_changing_the_previous_profile_set()
+    {
+        var store = Loaded();
+        ProfileSet previous = store.Profiles;
+
+        Assert.False(store.ChangeBinding("Дом", Profile.AutomaticId, currentNetwork: "Дом"));
+
+        Assert.Empty(previous.Bindings);
+        Assert.Equal(Profile.AutomaticId, store.Profiles.Bindings["Дом"]);
+        Assert.Equal(Profile.AutomaticId, Loaded().Profiles.Bindings["Дом"]);
+    }
+
+    [Fact]
+    public void Binding_is_not_published_if_saving_fails()
+    {
+        string folder = Path.Combine(_folder, "WiFiControl");
+        var store = new ProfileStore(folder);
+        store.Load();
+        File.WriteAllText(folder, "");
+
+        Assert.Throws<IOException>(() => store.ChangeBinding("Дом", Profile.AutomaticId, currentNetwork: "Дом"));
+
+        Assert.Empty(store.Profiles.Bindings);
+    }
+
+    [Fact]
     public void Directory_in_place_of_profiles_is_a_read_error_and_reload_recovers_after_repair()
     {
         Directory.CreateDirectory(FilePath);

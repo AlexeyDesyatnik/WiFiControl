@@ -40,11 +40,30 @@ public sealed class ProfileSet
         return _bindings.Remove(network);
     }
 
-    /// <summary>Профиль для сети: её привязка, а если её нет — профиль по умолчанию.</summary>
-    public Profile ProfileFor(string network)
+    /// <summary>
+    /// Меняет привязку сети; null снимает её. Возвращает, изменился ли профиль для текущей сети.
+    /// </summary>
+    public bool ChangeBinding(string network, Guid? profileId, string? currentNetwork)
     {
-        return Find(_bindings.GetValueOrDefault(network, _defaultProfileId))!;
+        Guid? before = currentNetwork == null ? null : ProfileIdFor(currentNetwork);
+        if (profileId is { } id) Bind(network, id);
+        else Unbind(network);
+        return currentNetwork != null && before != ProfileIdFor(currentNetwork);
     }
+
+    internal ProfileSet Copy()
+    {
+        var copy = new ProfileSet { _defaultProfileId = _defaultProfileId };
+        copy._profiles.AddRange(_profiles.Select(profile => profile.Clone()));
+        foreach (var binding in _bindings)
+            copy._bindings.Add(binding.Key, binding.Value);
+        return copy;
+    }
+
+    /// <summary>Профиль для сети: её привязка, а если её нет — профиль по умолчанию.</summary>
+    public Profile ProfileFor(string network) => Find(ProfileIdFor(network))!;
+
+    private Guid ProfileIdFor(string network) => _bindings.GetValueOrDefault(network, _defaultProfileId);
 
     public Profile? Find(Guid id)
     {
