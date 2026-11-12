@@ -16,6 +16,8 @@
                         <TextBlock x:Name="DefaultProfile" TextWrapping="Wrap" />
                         <TextBlock x:Name="DefaultWarning" Margin="0,4,0,0" TextWrapping="Wrap"
                                    Text="К сетям без привязки будут применяться настройки этого профиля." />
+                        <Button Content="Профиль из текущих настроек…" Click="OnCaptureProfile"
+                                IsEnabled="{Binding CanUseCurrentNetwork}" HorizontalAlignment="Left" Margin="0,8,0,0" />
                     </StackPanel>
                     <WrapPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
                         <Button Content="Создать…" Click="OnCreateProfile" Margin="0,0,6,0" />
@@ -29,6 +31,8 @@
             </TabItem>
             <TabItem Header="Привязки">
                 <DockPanel Margin="8">
+                    <Button DockPanel.Dock="Top" Content="Привязать текущую сеть…" Click="OnBindCurrentNetwork"
+                            IsEnabled="{Binding CanUseCurrentNetwork}" HorizontalAlignment="Left" Margin="0,0,0,8" />
                     <Grid DockPanel.Dock="Bottom" Margin="0,10,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />

@@ -6,6 +6,8 @@
         ShowInTaskbar="False" WindowStartupLocation="CenterOwner"
         FocusManager.FocusedElement="{Binding ElementName=ProfileName}">
     <DockPanel Margin="16">
+        <TextBlock DockPanel.Dock="Top" x:Name="Notice" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,12"
+                   AutomationProperties.LiveSetting="Polite" />
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button Content="Сохранить" IsDefault="True" Click="OnSave" MinWidth="110"
                     Style="{DynamicResource AccentButtonStyle}" />
@@ -38,29 +40,19 @@
                             <TextBox Grid.Row="2" Grid.Column="1" x:Name="Gateway" />
                         </Grid>
                         <CheckBox x:Name="AutoDns" Content="Получать DNS автоматически" Margin="0,8,0,0" />
-                        <Grid Margin="0,6,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <Label Content="DNS-сервер" Target="{Binding ElementName=Dns1}" VerticalAlignment="Center" Margin="0,0,8,4" />
-                            <TextBox Grid.Column="1" x:Name="Dns1" Margin="0,0,0,4" />
-                            <Label Grid.Row="1" Content="Второй DNS-сервер" Target="{Binding ElementName=Dns2}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                            <TextBox Grid.Row="1" Grid.Column="1" x:Name="Dns2" />
-                            <Grid.Style>
-                                <Style TargetType="Grid">
+                        <StackPanel Margin="0,6,0,0">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsChecked, ElementName=AutoDns}" Value="True">
                                             <Setter Property="IsEnabled" Value="False" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
-                            </Grid.Style>
-                        </Grid>
+                            </StackPanel.Style>
+                            <Label Content="DNS-серверы (до двух, по одному на строку)" Target="{Binding ElementName=DnsServers}" Padding="0,0,0,4" />
+                            <TextBox x:Name="DnsServers" AcceptsReturn="True" MinLines="2" MaxLines="4" VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
                     </StackPanel>
                 </GroupBox>
 

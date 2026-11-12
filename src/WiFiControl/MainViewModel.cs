@@ -105,6 +105,13 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
     public string? CurrentNetworkForEditor => _state?.Network;
 
+    public CurrentNetworkTarget? CurrentConnection =>
+        CanEditProfiles && HasUsableWifiSnapshot && _state is { Network: { Length: > 0 } name, WifiAdapter: { } adapter }
+            ? new CurrentNetworkTarget(adapter.Id, name)
+            : null;
+
+    public bool CanUseCurrentNetwork => CurrentConnection != null;
+
     /// <summary>Для действий с профилем сети список должен соответствовать прочитанному файлу профилей.</summary>
     public bool CanUseNetworkProfiles => CanUseWifi && CanEditProfiles && ReferenceEquals(_displayedProfiles, ReadableProfiles);
 
@@ -114,8 +121,10 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     /// <summary>Переключаться можно: адаптер известен, профили прочитаны, ничего не идёт.</summary>
     public bool CanSwitch => CanUseNetworkProfiles && _state?.Adapter != null;
 
-    public bool CanUseWifi => !IsBusy && !_stateReadFailed && _displayedWifiPreference == _preferredWifiAdapter
-        && _state is { WifiAdapter: { IsRadioOn: not false }, NetworkReadError: null, LocationAccessDenied: false };
+    private bool HasUsableWifiSnapshot => !IsBusy && !_stateReadFailed && _displayedWifiPreference == _preferredWifiAdapter
+        && _state is { WifiAdapter: { IsRadioOn: not false }, LocationAccessDenied: false };
+
+    public bool CanUseWifi => HasUsableWifiSnapshot && _state?.NetworkReadError == null;
 
     /// <summary>Профили для меню в строке сети: «Автоматически» первым.</summary>
     public IReadOnlyList<Profile> ProfileChoices => CanUseNetworkProfiles ? [Profile.Automatic, .. store.Profiles.Profiles] : [];
@@ -292,16 +301,39 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         }
     }
 
+    public async Task<CapturedProfile> CaptureCurrentProfileAsync(CurrentNetworkTarget target)
+    {
+        if (CurrentConnection != target || !await IsCurrentNetworkAsync(target))
+            throw new InvalidOperationException("Текущая сеть или Wi-Fi-адаптер изменились. Повторите команду.");
+
+        IReadOnlyList<Adapter> adapters = await network.ReadAdaptersAsync(CancellationToken.None);
+        Adapter adapter = FindAdapter(adapters, target.AdapterId)
+            ?? throw new InvalidOperationException("Не удалось прочитать настройки IPv4 текущего Wi-Fi-адаптера.");
+        ProxyState proxy = await network.ReadProxyAsync(CancellationToken.None);
+
+        if (!await IsCurrentNetworkAsync(target))
+            throw new InvalidOperationException("Текущая сеть или Wi-Fi-адаптер изменились. Повторите команду.");
+        return CapturedProfile.FromSettings(target.Network, adapter, proxy.SystemProxy);
+    }
+
     public Task<string?> ChangeBindingAsync(string networkKey, Guid? profileId, Func<Profile, bool> confirmApply,
-        Guid? requiredAdapterId = null)
+        Guid? requiredAdapterId = null) =>
+        SaveBindingAsync(networkKey, profileId, confirmApply, requiredAdapterId);
+
+    public Task<string?> BindCurrentNetworkAsync(CurrentNetworkTarget target, Guid profileId, Func<Profile, bool> confirmApply) =>
+        SaveBindingAsync(target.Network, profileId, confirmApply, requiredConnection: target);
+
+    private Task<string?> SaveBindingAsync(string networkKey, Guid? profileId, Func<Profile, bool> confirmApply,
+        Guid? requiredAdapterId = null, CurrentNetworkTarget? requiredConnection = null)
     {
         ProfileSet profiles = store.Profiles;
         if (profileId is { } id && profiles.Find(id) == null)
             return Task.FromResult<string?>("Профиль для привязки больше недоступен.");
         Guid? previous = profiles.Bindings.TryGetValue(networkKey, out Guid boundId) ? boundId : null;
-        if (previous == profileId) return Task.FromResult<string?>(null);
+        if (previous == profileId && requiredConnection == null) return Task.FromResult<string?>(null);
         return ChangeProfileSelectionAsync(
-            current => store.ChangeBinding(networkKey, profileId, current), confirmApply, requiredAdapterId);
+            current => previous != profileId && store.ChangeBinding(networkKey, profileId, current),
+            confirmApply, requiredAdapterId, requiredConnection);
     }
 
     public Task<string?> ChangeDefaultProfileAsync(Guid id, Func<Profile, bool> confirmApply) =>
@@ -311,8 +343,10 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         ChangeProfileSelectionAsync(current => store.RemoveProfile(id, current), confirmApply);
 
     private async Task<string?> ChangeProfileSelectionAsync(Func<string?, bool> save, Func<Profile, bool> confirmApply,
-        Guid? requiredAdapterId = null)
+        Guid? requiredAdapterId = null, CurrentNetworkTarget? requiredConnection = null)
     {
+        if (requiredConnection != null && CurrentConnection != requiredConnection)
+            return "Текущая сеть или Wi-Fi-адаптер изменились. Выберите профиль снова.";
         if (!CanEditProfiles || (requiredAdapterId != null &&
             (!CanUseNetworkProfiles || SelectedWifiAdapter?.Id != requiredAdapterId)))
             return "Редактирование профилей сейчас недоступно.";
@@ -332,14 +366,18 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
                 adapterId ??= await ReadSelectedWifiAdapterIdAsync();
                 if (adapterId is { } id) currentNetwork = await ReadCurrentNetworkKeyAsync(id);
             }
-            catch (WifiLocationAccessDeniedException) when (requiredAdapterId == null)
+            catch (WifiLocationAccessDeniedException) when (requiredAdapterId == null && requiredConnection == null)
             {
                 // Редактор доступен и без доступа к местоположению.
             }
-            catch (InvalidOperationException e) when (requiredAdapterId == null)
+            catch (InvalidOperationException e) when (requiredAdapterId == null && requiredConnection == null)
             {
                 readError = e.Message;
             }
+
+            if (requiredConnection is { } expected && (adapterId != expected.AdapterId ||
+                !NetworkKey.Comparer.Equals(currentNetwork, expected.Network)))
+                throw new InvalidOperationException("Текущая сеть или Wi-Fi-адаптер изменились. Выберите профиль снова.");
 
             bool affectsCurrent = save(currentNetwork);
             saved = true;
@@ -351,11 +389,10 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
                 if (confirmApply(profile))
                 {
                     IReadOnlyList<Adapter> adapters = await network.ReadAdaptersAsync(CancellationToken.None);
-                    adapter = adapters.FirstOrDefault(candidate => Guid.TryParse(candidate.Id, out Guid id) && id == currentAdapterId);
+                    adapter = FindAdapter(adapters, currentAdapterId);
                     if (adapter == null)
                         _bindingError = "Изменения сохранены. Не удалось прочитать настройки Wi-Fi-адаптера для применения.";
-                    else if (await ReadSelectedWifiAdapterIdAsync() != currentAdapterId
-                        || !NetworkKey.Comparer.Equals(currentNetwork, await ReadCurrentNetworkKeyAsync(currentAdapterId)))
+                    else if (!await IsCurrentNetworkAsync(new CurrentNetworkTarget(currentAdapterId, currentNetwork)))
                         _bindingError = "Изменения сохранены. Текущая сеть или Wi-Fi-адаптер изменились, профиль не применён.";
                     else
                         profileToApply = profile;
@@ -381,6 +418,13 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         else await LoadAsync();
         return error;
     }
+
+    private static Adapter? FindAdapter(IReadOnlyList<Adapter> adapters, Guid adapterId) =>
+        adapters.FirstOrDefault(candidate => Guid.TryParse(candidate.Id, out Guid id) && id == adapterId);
+
+    private async Task<bool> IsCurrentNetworkAsync(CurrentNetworkTarget target) =>
+        await ReadSelectedWifiAdapterIdAsync() == target.AdapterId
+        && NetworkKey.Comparer.Equals(target.Network, await ReadCurrentNetworkKeyAsync(target.AdapterId));
 
     private async Task<Guid?> ReadSelectedWifiAdapterIdAsync()
     {
@@ -514,6 +558,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     {
         OnPropertyChanged(nameof(CanUseWifi));
         OnPropertyChanged(nameof(CanUseNetworkProfiles));
+        OnPropertyChanged(nameof(CanUseCurrentNetwork));
         OnPropertyChanged(nameof(CanApplyProfile));
         OnPropertyChanged(nameof(CanSwitch));
         ApplyProfileCommand.NotifyCanExecuteChanged();
@@ -579,6 +624,8 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 internal sealed record NewNetwork(string Name, NewNetworkSecurity Security, bool Hidden = false, bool AutoConnect = true);
 
 internal sealed record ApplyProfileRequest(Guid ProfileId, Guid AdapterId);
+
+internal readonly record struct CurrentNetworkTarget(Guid AdapterId, string Network);
 
 internal sealed record PasswordRetry(string Network, string WindowsProfileName, NewNetwork? NewNetwork = null);
 

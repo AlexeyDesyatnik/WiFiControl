@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using WiFiControl.Core.Model;
 
 namespace WiFiControl;
@@ -8,12 +9,13 @@ namespace WiFiControl;
 internal partial class ProfilesWindow : Window
 {
     private readonly MainViewModel _model;
-    private bool _saving;
+    private bool _operationInProgress;
 
     public ProfilesWindow(MainViewModel model)
     {
         _model = model;
         InitializeComponent();
+        DataContext = model;
         Reload();
     }
 
@@ -63,15 +65,44 @@ internal partial class ProfilesWindow : Window
 
     private async void OnCreateProfile(object sender, RoutedEventArgs e) => await EditAsync(new Profile());
 
+    private async void OnCaptureProfile(object sender, RoutedEventArgs e)
+    {
+        if (_model.CurrentConnection is not { } target) return;
+        await RunOperationAsync("Чтение текущих настроек…", async () =>
+        {
+            CapturedProfile captured;
+            try
+            {
+                captured = await _model.CaptureCurrentProfileAsync(target);
+            }
+            catch (InvalidOperationException error)
+            {
+                MessageBox.Show(this, error.Message, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            string? notice = (captured.HasProxyAutoDetect, captured.HasProxyScript) switch
+            {
+                (true, true) => "Автоопределение прокси и сценарий настройки (PAC) не переносятся в профиль.",
+                (true, false) => "Автоопределение прокси не переносится в профиль.",
+                (false, true) => "Сценарий настройки прокси (PAC) не переносится в профиль.",
+                _ => null,
+            };
+            SaveStatus.Text = "";
+            await EditAsync(captured.Profile, notice);
+        });
+    }
+
     private async void OnEditProfile(object sender, RoutedEventArgs e)
     {
         if (ProfileList.SelectedItem is Profile { IsAutomatic: false } profile)
             await EditAsync(profile);
     }
 
-    private async Task EditAsync(Profile profile)
+    private async Task EditAsync(Profile profile, string? notice = null)
     {
-        var dialog = new ProfileEditorWindow(profile, _model.SaveProfile) { Owner = this };
+        bool isNew = _model.ProfilesForEditor.Find(profile.Id) == null;
+        var dialog = new ProfileEditorWindow(profile, isNew, _model.SaveProfile, notice) { Owner = this };
         if (dialog.ShowDialog() != true) return;
         Reload(profile.Id);
         await _model.LoadAsync();
@@ -126,6 +157,28 @@ internal partial class ProfilesWindow : Window
             await SaveAsync(() => _model.ChangeBindingAsync(row.Network, null, ConfirmApply));
     }
 
+    private void OnBindCurrentNetwork(object sender, RoutedEventArgs e)
+    {
+        if (_model.CurrentConnection is not { } target) return;
+        var menu = new ContextMenu { PlacementTarget = (Button)sender, Placement = PlacementMode.Bottom };
+        menu.Items.Add(new MenuItem { Header = new TextBlock { Text = "Сеть: " + target.Network }, IsEnabled = false });
+        menu.Items.Add(new Separator());
+        bool hasBinding = _model.ProfilesForEditor.Bindings.TryGetValue(target.Network, out Guid boundProfileId);
+        foreach (Profile profile in ProfileList.Items.OfType<Profile>())
+        {
+            var item = new MenuItem
+            {
+                Header = new TextBlock { Text = profile.Name },
+                IsCheckable = true,
+                IsChecked = hasBinding && profile.Id == boundProfileId,
+            };
+            item.Click += async (_, _) =>
+                await SaveAsync(() => _model.BindCurrentNetworkAsync(target, profile.Id, ConfirmApply), target.Network);
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
+
     private bool ConfirmApply(Profile profile)
     {
         if (!MainWindow.ConfirmApply(this, profile)) return false;
@@ -133,34 +186,40 @@ internal partial class ProfilesWindow : Window
         return true;
     }
 
-    private async Task SaveAsync(Func<Task<string?>> save, string? network = null)
-    {
-        ProfileSet previous = _model.ProfilesForEditor;
-        _saving = true;
-        EditorTabs.IsEnabled = false;
-        CloseEditor.IsEnabled = false;
-        SaveStatus.Text = "Сохранение изменений…";
-        try
+    private Task SaveAsync(Func<Task<string?>> save, string? network = null) =>
+        RunOperationAsync("Сохранение изменений…", async () =>
         {
+            ProfileSet previous = _model.ProfilesForEditor;
             string? error = await save();
             if (error != null)
                 MessageBox.Show(this, error, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
             if (error == null || !ReferenceEquals(previous, _model.ProfilesForEditor))
                 Reload(network: network);
+        });
+
+    private async Task RunOperationAsync(string status, Func<Task> action)
+    {
+        _operationInProgress = true;
+        EditorTabs.IsEnabled = false;
+        CloseEditor.IsEnabled = false;
+        SaveStatus.Text = status;
+        try
+        {
+            await action();
         }
         finally
         {
             EditorTabs.IsEnabled = true;
             CloseEditor.IsEnabled = true;
             SaveStatus.Text = "";
-            _saving = false;
+            _operationInProgress = false;
         }
     }
 
     protected override void OnClosing(CancelEventArgs e)
     {
         base.OnClosing(e);
-        if (_saving) e.Cancel = true;
+        if (_operationInProgress) e.Cancel = true;
     }
 
     private sealed record BindingRow(string Network, Guid ProfileId, string ProfileName);

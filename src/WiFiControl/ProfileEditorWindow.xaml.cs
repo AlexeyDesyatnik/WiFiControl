@@ -10,21 +10,22 @@ internal partial class ProfileEditorWindow : Window
     private readonly string _originalProxyExceptionsText;
     private readonly Func<Profile, IReadOnlyList<string>> _save;
 
-    public ProfileEditorWindow(Profile profile, Func<Profile, IReadOnlyList<string>> save)
+    public ProfileEditorWindow(Profile profile, bool isNew, Func<Profile, IReadOnlyList<string>> save, string? notice)
     {
         _id = profile.Id;
         _originalProxyExceptions = profile.Proxy.Exceptions.ToArray();
         _save = save;
         InitializeComponent();
-        Title = profile.Name.Length == 0 ? "Создание профиля" : "Редактирование профиля";
+        Title = isNew ? "Создание профиля" : "Редактирование профиля";
+        Notice.Text = notice ?? "";
+        Notice.Visibility = notice == null ? Visibility.Collapsed : Visibility.Visible;
         ProfileName.Text = profile.Name;
         AutoAddress.IsChecked = profile.Ipv4.AutoAddress;
         Address.Text = profile.Ipv4.Address;
         Mask.Text = profile.Ipv4.Mask;
         Gateway.Text = profile.Ipv4.Gateway;
         AutoDns.IsChecked = profile.Ipv4.AutoDns;
-        Dns1.Text = profile.Ipv4.Dns.ElementAtOrDefault(0) ?? "";
-        Dns2.Text = profile.Ipv4.Dns.ElementAtOrDefault(1) ?? "";
+        DnsServers.Text = string.Join(Environment.NewLine, profile.Ipv4.Dns);
         ProxyEnabled.IsChecked = profile.Proxy.Enabled;
         ProxyServer.Text = profile.Proxy.Server;
         ProxyExceptions.Text = string.Join(Environment.NewLine, _originalProxyExceptions);
@@ -65,7 +66,7 @@ internal partial class ProfileEditorWindow : Window
                 PrivateNetworksDirect = PrivateNetworksDirect.IsChecked == true,
             },
         };
-        profile.Ipv4.Dns.AddRange([Dns1.Text, Dns2.Text]);
+        profile.Ipv4.Dns.AddRange(DnsServers.Text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries));
         profile.Proxy.Exceptions.AddRange(ProxyExceptions.Text == _originalProxyExceptionsText
             ? _originalProxyExceptions
             : ProxyExceptions.Text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries));
