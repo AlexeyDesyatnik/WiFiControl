@@ -25,8 +25,22 @@ public sealed class WindowsWifiSystem : IWifiSystem
     public Task<IReadOnlyList<WifiAdapter>> ReadAdaptersAsync(CancellationToken cancellationToken)
     {
         return RunAsync("список Wi-Fi-адаптеров", () => (IReadOnlyList<WifiAdapter>)NativeWifi.EnumerateInterfaces()
-            .Select(adapter => new WifiAdapter(adapter.Id, adapter.Description))
+            .Select(adapter => new WifiAdapter(adapter.Id, adapter.Description) { IsRadioOn = ReadRadio(adapter.Id) })
             .ToList(), cancellationToken);
+    }
+
+    private static bool? ReadRadio(Guid adapter)
+    {
+        try
+        {
+            RadioInfo? radio = NativeWifi.GetRadio(adapter);
+            return radio?.RadioStates.Any() == true ? radio.RadioStates.Any(state => state.IsOn) : null;
+        }
+        catch (Exception e) when (e is Win32Exception or UnauthorizedAccessException)
+        {
+            // Состояние радио может быть недоступно, например если адаптер только что отключили.
+            return null;
+        }
     }
 
     public Task<IReadOnlyList<VisibleNetwork>> ReadVisibleNetworksAsync(Guid adapter, CancellationToken cancellationToken)

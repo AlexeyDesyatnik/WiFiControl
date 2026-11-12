@@ -63,7 +63,7 @@ public class SwitchTests
         Assert.Equal("Office", Current);
         Assert.True(_adapter.Configured.SameAs(_office.Ipv4));
         Assert.True(_system.SystemProxy.Settings.Enabled);
-        Assert.Equal(new LastApplication("Office", _office.Id), _applier.Last);
+        Assert.Equal(new LastApplication("Office", _office.Id) { AdapterId = FakeWifi.WifiId }, _applier.Last);
     }
 
     [Fact]
@@ -207,7 +207,7 @@ public class SwitchTests
 
         Assert.Equal(StepOutcome.Warning, Step(results, "Адрес").Outcome);
         Assert.DoesNotContain(results, result => result.Title is Ipv4Rollback or Return);
-        Assert.Equal(new LastApplication("Office", Profile.Automatic.Id), _applier.Last);
+        Assert.Equal(new LastApplication("Office", Profile.Automatic.Id) { AdapterId = FakeWifi.WifiId }, _applier.Last);
     }
 
     [Fact]

@@ -85,6 +85,26 @@ internal partial class MainWindow : Window
         if (Shown) await _model.LoadAsync();
     }
 
+    private void OnChooseWifiAdapterClick(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = (Button)sender, Placement = PlacementMode.Bottom };
+        foreach (WifiAdapter adapter in _model.WifiAdapters)
+        {
+            var item = new MenuItem
+            {
+                Header = adapter.Description,
+                IsCheckable = true,
+                IsChecked = adapter.Id == _model.SelectedWifiAdapter?.Id,
+            };
+            item.Click += async (_, _) =>
+            {
+                if (_model.TrySelectWifiAdapter(adapter)) await _model.LoadAsync();
+            };
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
+
     private async void OnConnectNewClick(object sender, RoutedEventArgs e)
     {
         var row = (NetworkRowViewModel)((Button)sender).DataContext;
@@ -117,14 +137,17 @@ internal partial class MainWindow : Window
             return;
         }
 
+        Guid? adapter = _model.SelectedWifiAdapter?.Id;
         var dialog = new PasswordWindow(retry.Network, security: null) { Owner = this };
-        if (dialog.ShowDialog() == true) await _model.ReenterPasswordAsync(retry, dialog.PasswordText);
+        if (dialog.ShowDialog() == true && CanContinueOnWifiAdapter(adapter))
+            await _model.ReenterPasswordAsync(retry, dialog.PasswordText);
     }
 
     private async Task ConnectNewAsync(NewNetwork request)
     {
+        Guid? adapter = _model.SelectedWifiAdapter?.Id;
         var dialog = new PasswordWindow(request) { Owner = this };
-        if (dialog.ShowDialog() == true && dialog.Security is { } selected)
+        if (dialog.ShowDialog() == true && dialog.Security is { } selected && CanContinueOnWifiAdapter(adapter))
         {
             await _model.ConnectNewAsync(request with
             {
@@ -135,14 +158,27 @@ internal partial class MainWindow : Window
         }
     }
 
+    private bool CanContinueOnWifiAdapter(Guid? adapter)
+    {
+        if (adapter == _model.SelectedWifiAdapter?.Id) return true;
+        _model.Error = "Wi-Fi-адаптер изменился. Выберите сеть снова.";
+        return false;
+    }
+
     // Список профилей собирается при нажатии: профили могли измениться
     private void OnApplyProfileClick(object sender, RoutedEventArgs e)
     {
+        if (_model.SelectedWifiAdapter is not { } adapter) return;
         var button = (Button)sender;
         var menu = new ContextMenu { PlacementTarget = button, Placement = PlacementMode.Bottom };
         foreach (Profile profile in _model.ProfileChoices)
         {
-            menu.Items.Add(new MenuItem { Header = profile.Name, Command = _model.ApplyProfileCommand, CommandParameter = profile });
+            menu.Items.Add(new MenuItem
+            {
+                Header = profile.Name,
+                Command = _model.ApplyProfileCommand,
+                CommandParameter = new ApplyProfileRequest(profile, adapter.Id),
+            });
         }
         menu.IsOpen = true;
     }

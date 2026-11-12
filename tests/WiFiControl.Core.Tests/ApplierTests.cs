@@ -290,7 +290,7 @@ public class ApplierTests
 
         await ApplyAsync();
 
-        Assert.Equal(new LastApplication("Office", _office.Id), _applier.Last);
+        Assert.Equal(new LastApplication("Office", _office.Id) { AdapterId = FakeWifi.WifiId }, _applier.Last);
         CurrentState state = await CurrentState.ReadAsync(_system, wifi, profiles, _applier.Last, CancellationToken.None);
         Assert.Equal(_office.Id, state.ExpectedProfile?.Id);
         Assert.Null(state.Mismatch);

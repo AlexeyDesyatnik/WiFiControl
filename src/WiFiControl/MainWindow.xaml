@@ -22,7 +22,36 @@
             <Button DockPanel.Dock="Right" Command="{Binding RefreshCommand}" ToolTip="Обновить" Padding="8,6">
                 <TextBlock Text="&#xE72C;" FontFamily="{StaticResource Icons}" FontSize="14" />
             </Button>
-            <TextBlock Text="{Binding AdapterName}" Style="{StaticResource Secondary}" ToolTip="Wi-Fi-адаптер" />
+            <Grid Margin="0,0,8,0">
+                <TextBlock Text="{Binding AdapterName}" ToolTip="Wi-Fi-адаптер">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource Secondary}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasAdapterChoice}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <Button x:Name="WifiAdapterSelector" Click="OnChooseWifiAdapterClick" ToolTip="Выбрать Wi-Fi-адаптер"
+                        AutomationProperties.Name="Выбрать Wi-Fi-адаптер" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch" Visibility="{Binding HasAdapterChoice, Converter={StaticResource Visible}}">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                    <Setter Property="IsEnabled" Value="False" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0" Text="&#xE70D;" FontFamily="{StaticResource Icons}" />
+                        <TextBlock Text="{Binding AdapterName}" TextTrimming="CharacterEllipsis" />
+                    </DockPanel>
+                </Button>
+            </Grid>
         </DockPanel>
 
         <!-- Карточка «Сейчас» -->

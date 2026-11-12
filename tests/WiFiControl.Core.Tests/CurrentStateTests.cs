@@ -21,6 +21,79 @@ public class CurrentStateTests
     }
 
     [Fact]
+    public async Task Saved_adapter_is_used_when_present_and_reselected_after_it_returns()
+    {
+        var saved = new WifiAdapter(Guid.NewGuid(), "USB Wi-Fi");
+        _wifi.Adapters.Add(saved);
+        _system.Adapters.Add(new Adapter { Id = saved.Id.ToString("B"), Name = saved.Description, IsWireless = true });
+
+        Task<CurrentState> ReadWithPreferenceAsync() =>
+            CurrentState.ReadAsync(_system, _wifi, _profiles, last: null, CancellationToken.None, preferredWifiAdapter: saved.Id);
+
+        CurrentState initial = await ReadWithPreferenceAsync();
+        Assert.Equal([_wifi.Adapters[0], saved], initial.WifiAdapters);
+        Assert.Equal(saved, initial.WifiAdapter);
+        Assert.Equal(saved.Description, initial.Adapter?.Name);
+
+        _wifi.Adapters.Remove(saved);
+        CurrentState fallback = await ReadWithPreferenceAsync();
+        Assert.Equal(FakeWifi.WifiId, fallback.WifiAdapter?.Id);
+
+        _wifi.Adapters.Add(saved);
+        Assert.Equal(saved, (await ReadWithPreferenceAsync()).WifiAdapter);
+    }
+
+    [Fact]
+    public async Task No_wifi_adapters_leaves_no_active_adapter()
+    {
+        _wifi.Adapters.Clear();
+
+        CurrentState state = await ReadAsync();
+
+        Assert.Empty(state.WifiAdapters);
+        Assert.Null(state.WifiAdapter);
+    }
+
+    [Fact]
+    public async Task Another_adapter_in_the_same_network_uses_the_network_profile()
+    {
+        var profile = new Profile { Name = "Разовое применение" };
+        Assert.Empty(_profiles.Add(profile));
+        var last = new LastApplication("Office", profile.Id) { AdapterId = Guid.NewGuid() };
+        _wifi.Current = Encoding.UTF8.GetBytes("Office");
+
+        CurrentState state = await CurrentState.ReadAsync(_system, _wifi, _profiles, last, CancellationToken.None);
+
+        Assert.Equal(Profile.AutomaticId, state.ExpectedProfile?.Id);
+    }
+
+    [Fact]
+    public async Task Radio_off_keeps_the_adapter_visible_without_showing_cached_networks()
+    {
+        _wifi.Adapters[0] = _wifi.Adapters[0] with { IsRadioOn = false };
+        _wifi.Current = Encoding.UTF8.GetBytes("Office");
+        _wifi.Networks.Add(FakeWifi.Entry("Office", 80));
+
+        CurrentState state = await ReadAsync();
+
+        Assert.False(state.WifiAdapter?.IsRadioOn);
+        Assert.Null(state.Network);
+        Assert.Empty(state.Networks);
+    }
+
+    [Fact]
+    public async Task A_failure_to_read_the_current_network_does_not_hide_adapter_choices()
+    {
+        _wifi.Adapters.Add(new WifiAdapter(Guid.NewGuid(), "USB Wi-Fi"));
+        _wifi.CurrentFailure = new InvalidOperationException("Windows не отдала имя текущей сети: отказ.");
+
+        CurrentState state = await ReadAsync();
+
+        Assert.Equal(2, state.WifiAdapters.Count);
+        Assert.Equal(_wifi.CurrentFailure.Message, state.NetworkReadError);
+    }
+
+    [Fact]
     public async Task Network_seen_by_several_access_points_is_one_row_with_the_strongest_signal()
     {
         _wifi.Networks.Add(FakeWifi.Entry("Office", 40));

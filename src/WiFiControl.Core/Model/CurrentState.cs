@@ -25,6 +25,9 @@ public enum Problem
 /// <summary>Снимок текущего состояния для блока «Сейчас» и списка сетей.</summary>
 public sealed class CurrentState
 {
+    /// <summary>Все Wi-Fi-адаптеры, которые видит Windows.</summary>
+    public IReadOnlyList<WifiAdapter> WifiAdapters { get; private init; } = [];
+
     /// <summary>Wi-Fi-адаптер, с которым работает инструмент; null, если Wi-Fi-адаптеров нет.</summary>
     public WifiAdapter? WifiAdapter { get; private init; }
 
@@ -63,14 +66,21 @@ public sealed class CurrentState
     /// <summary>Причина, по которой не удалось прочитать режимы автоподключения для списка сетей.</summary>
     public string? WindowsProfilesReadError { get; private init; }
 
+    /// <summary>Причина, по которой не удалось прочитать текущую сеть или список сетей.</summary>
+    public string? NetworkReadError { get; private init; }
+
+    /// <summary>Сохранённый адаптер, если он доступен, иначе первый из доступных.</summary>
+    public static WifiAdapter? SelectWifiAdapter(IReadOnlyList<WifiAdapter> adapters, Guid? preferredWifiAdapter) =>
+        adapters.FirstOrDefault(adapter => adapter.Id == preferredWifiAdapter) ?? adapters.FirstOrDefault();
+
     /// <param name="profiles">Профили и привязки; null, если файл профилей не прочитан.</param>
     /// <param name="last">Последнее применение; null, если его не было.</param>
     public static async Task<CurrentState> ReadAsync(INetworkSystem network, IWifiSystem wifi, ProfileSet? profiles, LastApplication? last,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, Guid? preferredWifiAdapter = null)
     {
         ProxyState proxy = await network.ReadProxyAsync(cancellationToken).ConfigureAwait(false);
-        // Выбор из нескольких Wi-Fi-адаптеров появится позже, пока — первый
-        WifiAdapter? wifiAdapter = (await wifi.ReadAdaptersAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault();
+        IReadOnlyList<WifiAdapter> wifiAdapters = await wifi.ReadAdaptersAsync(cancellationToken).ConfigureAwait(false);
+        WifiAdapter? wifiAdapter = SelectWifiAdapter(wifiAdapters, preferredWifiAdapter);
         if (wifiAdapter == null) return new CurrentState { Proxy = proxy };
 
         IReadOnlyList<Adapter> adapters = await network.ReadAdaptersAsync(cancellationToken).ConfigureAwait(false);
@@ -78,8 +88,21 @@ public sealed class CurrentState
         IReadOnlyList<DefaultRoute> routes = await network.ReadDefaultRoutesAsync(cancellationToken).ConfigureAwait(false);
         Guid? internetId = await network.ReadInternetAdapterAsync(cancellationToken).ConfigureAwait(false);
         Adapter? internetAdapter = internetId == null ? null : adapters.FirstOrDefault(candidate => IsAdapter(candidate, internetId.Value));
-        byte[]? current = await wifi.ReadCurrentNetworkAsync(wifiAdapter.Id, cancellationToken).ConfigureAwait(false);
-        IReadOnlyList<VisibleNetwork> entries = await wifi.ReadVisibleNetworksAsync(wifiAdapter.Id, cancellationToken).ConfigureAwait(false);
+        byte[]? current = null;
+        IReadOnlyList<VisibleNetwork> entries = [];
+        string? networkReadError = null;
+        if (wifiAdapter.IsRadioOn != false)
+        {
+            try
+            {
+                current = await wifi.ReadCurrentNetworkAsync(wifiAdapter.Id, cancellationToken).ConfigureAwait(false);
+                entries = await wifi.ReadVisibleNetworksAsync(wifiAdapter.Id, cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException e)
+            {
+                networkReadError = e.Message;
+            }
+        }
         IReadOnlyList<WindowsProfile> windowsProfiles = [];
         string? windowsProfilesReadError = null;
         if (entries.Any(entry => entry.WindowsProfileName.Length > 0))
@@ -95,9 +118,11 @@ public sealed class CurrentState
         }
 
         string? currentKey = current == null ? null : NetworkKey.FromBytes(current);
-        Profile? expected = currentKey == null || profiles == null ? null : Model.Mismatch.ExpectedProfile(last, currentKey, profiles);
+        LastApplication? lastOnAdapter = last?.AdapterId is { } appliedAdapter && appliedAdapter != wifiAdapter.Id ? null : last;
+        Profile? expected = currentKey == null || profiles == null ? null : Model.Mismatch.ExpectedProfile(lastOnAdapter, currentKey, profiles);
         return new CurrentState
         {
+            WifiAdapters = wifiAdapters,
             WifiAdapter = wifiAdapter,
             Adapter = adapter,
             Network = currentKey,
@@ -110,6 +135,7 @@ public sealed class CurrentState
             Mismatch = expected == null || adapter == null ? null : FindMismatch(expected, adapter, proxy),
             Networks = BuildList(entries, currentKey, profiles, windowsProfiles),
             WindowsProfilesReadError = windowsProfilesReadError,
+            NetworkReadError = networkReadError,
         };
     }
 

@@ -62,7 +62,7 @@ public class NewNetworkSwitchTests
         Assert.All(result.Steps, step => Assert.True(step.Ok));
         Assert.Equal(["disconnect", "save Cafe", "connect Cafe"], _wifi.Calls);
         Assert.Contains(_wifi.WindowsProfiles, profile => profile.Name == "Cafe");
-        Assert.Equal(new LastApplication("Cafe", Profile.Automatic.Id), _applier.Last);
+        Assert.Equal(new LastApplication("Cafe", Profile.Automatic.Id) { AdapterId = FakeWifi.WifiId }, _applier.Last);
         Assert.False(result.PasswordRejected);
     }
 

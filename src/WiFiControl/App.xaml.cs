@@ -16,10 +16,11 @@ public partial class App : Application
 
         var store = new ProfileStore(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WiFiControl"));
         store.Load();
+        var stateStore = new StateStore(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WiFiControl"));
 
         var wifi = new WindowsWifiSystem();
         var network = new WindowsNetworkSystem();
-        var window = new MainWindow(new MainViewModel(network, wifi, store, new Applier(network, wifi, TimeProvider.System)), wifi);
+        var window = new MainWindow(new MainViewModel(network, wifi, store, stateStore, new Applier(network, wifi, TimeProvider.System)), wifi);
         MainWindow = window;
         window.Show();
     }

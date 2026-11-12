@@ -57,7 +57,11 @@ public interface IWifiSystem
 }
 
 /// <summary>Wi-Fi-адаптер, как его видит WLAN API. <see cref="Id"/> совпадает с GUID адаптера в <see cref="Adapter.Id"/>.</summary>
-public sealed record WifiAdapter(Guid Id, string Description);
+public sealed record WifiAdapter(Guid Id, string Description)
+{
+    /// <summary>Радио включено, если работает хотя бы один радиомодуль. Null, если состояние неизвестно.</summary>
+    public bool? IsRadioOn { get; init; }
+}
 
 /// <summary>Защита сети, как её объявляет точка доступа.</summary>
 public enum WifiSecurity

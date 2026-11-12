@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WiFiControl.Core.Model;
@@ -10,17 +11,22 @@ namespace WiFiControl;
 /// Главное окно: блок «Сейчас» и список сетей из снимка текущего состояния, «Подключиться» у знакомой сети
 /// и у новой, «Ввести пароль заново», «Применить профиль…» и «Применить» у расхождения.
 /// </summary>
-internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem wifi, ProfileStore store, Applier applier) : ObservableObject
+internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem wifi, ProfileStore store, StateStore stateStore, Applier applier)
+    : ObservableObject
 {
     private const string Missing = "—";
 
     private CurrentState? _state;
+    private Guid? _preferredWifiAdapter = stateStore.Load();
+    private Guid? _displayedWifiPreference;
+    private bool _stateReadFailed;
     private bool _loading;
     private bool _loadAgain;
     // Отказы, которые удачное чтение не отменяет: их видно, пока причина не уйдёт
     private string? _scanError;
     private string? _notificationsError;
     private string? _autoConnectError;
+    private string? _adapterSaveError;
 
     [ObservableProperty]
     private string _adapterName = "";
@@ -73,14 +79,23 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
     public ObservableCollection<NetworkRowViewModel> Networks { get; } = [];
 
+    public IReadOnlyList<WifiAdapter> WifiAdapters => _state?.WifiAdapters ?? [];
+
+    public WifiAdapter? SelectedWifiAdapter => _state?.WifiAdapter;
+
+    public bool HasAdapterChoice => WifiAdapters.Count > 1;
+
     /// <summary>Ход последнего применения по шагам.</summary>
     public ObservableCollection<StepViewModel> Steps { get; } = [];
 
     /// <summary>Применить профиль можно: адаптер подключён к известной сети, профили прочитаны, применение не идёт.</summary>
-    public bool CanApplyProfile => !IsBusy && _state?.Adapter != null && _state.Network != null && store.LoadError == null;
+    public bool CanApplyProfile => CanSwitch && _state?.Network != null;
 
     /// <summary>Переключаться можно: адаптер известен, профили прочитаны, ничего не идёт.</summary>
-    public bool CanSwitch => !IsBusy && _state?.Adapter != null && store.LoadError == null;
+    public bool CanSwitch => CanUseWifi && _state?.Adapter != null && store.LoadError == null;
+
+    private bool CanUseWifi => !IsBusy && !_stateReadFailed && _displayedWifiPreference == _preferredWifiAdapter
+        && _state is { WifiAdapter: { IsRadioOn: not false }, NetworkReadError: null };
 
     /// <summary>Профили для «Применить профиль…»: «Автоматически» первым.</summary>
     public IReadOnlyList<Profile> ProfileChoices => store.LoadError == null ? [Profile.Automatic, .. store.Profiles.Profiles] : [];
@@ -100,17 +115,41 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     public async Task RefreshAsync()
     {
         _autoConnectError = null;
+        Guid? preference = _preferredWifiAdapter;
+        string? scanError = null;
         try
         {
             IReadOnlyList<WifiAdapter> adapters = await wifi.ReadAdaptersAsync(CancellationToken.None);
-            if (adapters.Count > 0) await wifi.ScanAsync(adapters[0].Id, CancellationToken.None);
-            _scanError = null;
+            WifiAdapter? adapter = CurrentState.SelectWifiAdapter(adapters, preference);
+            if (preference == _preferredWifiAdapter && adapter is { IsRadioOn: not false })
+                await wifi.ScanAsync(adapter.Id, CancellationToken.None);
         }
         catch (InvalidOperationException e)
         {
-            _scanError = e.Message;
+            scanError = e.Message;
         }
+        if (preference == _preferredWifiAdapter) _scanError = scanError;
         await LoadAsync();
+    }
+
+    public bool TrySelectWifiAdapter(WifiAdapter adapter)
+    {
+        if (IsBusy || !HasAdapterChoice || !WifiAdapters.Any(candidate => candidate.Id == adapter.Id)) return false;
+        try
+        {
+            stateStore.Save(adapter.Id);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Error = _adapterSaveError = "Не удалось сохранить выбор Wi-Fi-адаптера: " + e.Message;
+            return false;
+        }
+
+        _preferredWifiAdapter = adapter.Id;
+        _adapterSaveError = _autoConnectError = _scanError = null;
+        PasswordRejected = null;
+        NotifyNetworkActions();
+        return true;
     }
 
     /// <summary>
@@ -131,16 +170,24 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
             do
             {
                 _loadAgain = false;
+                Guid? preference = _preferredWifiAdapter;
                 try
                 {
                     CurrentState state = await CurrentState.ReadAsync(network, wifi, store.LoadError == null ? store.Profiles : null,
-                        applier.Last, CancellationToken.None);
+                        applier.Last, CancellationToken.None, preference);
                     if (IsBusy) return;
+                    if (preference != _preferredWifiAdapter) continue;
+                    _displayedWifiPreference = preference;
+                    _stateReadFailed = false;
                     Show(state);
-                    Error = _autoConnectError ?? state.WindowsProfilesReadError ?? _scanError ?? _notificationsError;
+                    Error = _adapterSaveError ?? _autoConnectError ?? state.NetworkReadError ?? state.WindowsProfilesReadError
+                        ?? (state.WifiAdapter is { IsRadioOn: not false } ? _scanError : null) ?? _notificationsError;
                 }
                 catch (InvalidOperationException e)
                 {
+                    if (IsBusy || preference != _preferredWifiAdapter) continue;
+                    _stateReadFailed = true;
+                    NotifyNetworkActions();
                     Error = e.Message;
                 }
             } while (_loadAgain);
@@ -153,7 +200,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
     public async Task SetAutoConnectAsync(NetworkRowViewModel row, bool autoConnect)
     {
-        if (IsBusy || !row.HasAutoConnectSetting || _state?.WifiAdapter is not { } adapter) return;
+        if (!CanUseWifi || !row.HasAutoConnectSetting || SelectedWifiAdapter is not { } adapter) return;
 
         IsBusy = true;
         _autoConnectError = null;
@@ -173,8 +220,9 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     }
 
     /// <summary>«Применить профиль…» для текущей сети: привязку не меняет.</summary>
-    [RelayCommand(CanExecute = nameof(CanApply))]
-    private Task ApplyProfileAsync(Profile profile) => ApplyAsync(profile);
+    [RelayCommand(CanExecute = nameof(CanApplyChosenProfile))]
+    private Task ApplyProfileAsync(ApplyProfileRequest request) =>
+        CanApplyChosenProfile(request) ? ApplyAsync(request.Profile) : Task.CompletedTask;
 
     /// <summary>«Применить» у расхождения: ожидаемый профиль заново.</summary>
     [RelayCommand(CanExecute = nameof(CanApply))]
@@ -235,8 +283,11 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
     private bool CanApply() => CanApplyProfile;
 
+    private bool CanApplyChosenProfile(ApplyProfileRequest? request) =>
+        CanApplyProfile && request != null && request.AdapterId == SelectedWifiAdapter?.Id;
+
     /// <summary>Подключиться можно к знакомой сети, кроме текущей, когда её профиль известен и ничего не идёт.</summary>
-    private bool CanConnect(NetworkRowViewModel? row) => !IsBusy && row is { CanConnect: true } && row.Row.Profile != null && _state?.Adapter != null;
+    private bool CanConnect(NetworkRowViewModel? row) => CanSwitch && row is { CanConnect: true } && row.Row.Profile != null;
 
     private Task ApplyAsync(Profile profile)
     {
@@ -276,17 +327,30 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         await LoadAsync();
     }
 
-    private void Show(CurrentState state)
+    private void NotifyNetworkActions()
     {
-        _state = state;
         OnPropertyChanged(nameof(CanApplyProfile));
         OnPropertyChanged(nameof(CanSwitch));
         ApplyProfileCommand.NotifyCanExecuteChanged();
         ApplyExpectedCommand.NotifyCanExecuteChanged();
         ConnectCommand.NotifyCanExecuteChanged();
+    }
 
+    private void Show(CurrentState state)
+    {
+        bool activeAdapterChanged = SelectedWifiAdapter?.Id != state.WifiAdapter?.Id;
+        bool hadAdapterChoice = HasAdapterChoice;
+        _state = state;
+        if (activeAdapterChanged) PasswordRejected = null;
+        if (hadAdapterChoice != HasAdapterChoice) OnPropertyChanged(nameof(HasAdapterChoice));
+        NotifyNetworkActions();
         AdapterName = state.WifiAdapter?.Description ?? "";
-        NetworkTitle = state.WifiAdapter == null ? "Wi-Fi-адаптер не найден" : state.Network ?? "Не подключено";
+        NetworkTitle = state.WifiAdapter switch
+        {
+            null => "Wi-Fi-адаптер не найден",
+            { IsRadioOn: false } => "Wi-Fi выключен",
+            _ => state.Network ?? "Не подключено",
+        };
         NetworkProfile = state.Network == null ? ""
             : state.Profile == null ? "профиль неизвестен"
             : state.IsBound ? "профиль: " + state.Profile.Name + " (привязана)"
@@ -325,6 +389,8 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 }
 
 internal sealed record NewNetwork(string Name, NewNetworkSecurity Security, bool Hidden = false, bool AutoConnect = true);
+
+internal sealed record ApplyProfileRequest(Profile Profile, Guid AdapterId);
 
 internal sealed record PasswordRetry(string Network, string WindowsProfileName, NewNetwork? NewNetwork = null);
 

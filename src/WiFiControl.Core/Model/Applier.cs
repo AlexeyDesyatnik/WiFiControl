@@ -31,7 +31,7 @@ public sealed class Applier(INetworkSystem system, IWifiSystem wifi, TimeProvide
         await new ConnectionCheck(system, time, adapter, profile).RunAsync(Report, cancellationToken).ConfigureAwait(false);
 
         // Даже после ошибки шага: ожидается применённый профиль, а неудача видна расхождением
-        Last = new LastApplication(network, profile.Id);
+        RememberApplication(adapter, network, profile);
         return results;
     }
 
@@ -82,8 +82,13 @@ public sealed class Applier(INetworkSystem system, IWifiSystem wifi, TimeProvide
         var networkSwitch = new NetworkSwitch(system, wifi, time, adapter, Report);
         (bool connected, bool passwordRejected) = await networkSwitch.RunAsync(network, windowsProfile, change, profile, cancellationToken)
             .ConfigureAwait(false);
-        if (connected) Last = new LastApplication(network, profile.Id);
+        if (connected) RememberApplication(adapter, network, profile);
         return new SwitchResult(results, passwordRejected);
+    }
+
+    private void RememberApplication(Adapter adapter, string network, Profile profile)
+    {
+        Last = new LastApplication(network, profile.Id) { AdapterId = Guid.TryParse(adapter.Id, out Guid id) ? id : null };
     }
 }
 
