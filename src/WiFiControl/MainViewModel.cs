@@ -61,7 +61,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     /// null, если такого нет.
     /// </summary>
     [ObservableProperty]
-    private NetworkRow? _passwordRejected;
+    private PasswordRetry? _passwordRejected;
 
     /// <summary>Почему состояние не прочитано; null, если прочитано.</summary>
     [ObservableProperty]
@@ -162,7 +162,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         Adapter adapter = _state!.Adapter!;
         NetworkRow network = row.Row;
         Profile profile = network.Profile!;
-        await SwitchAsync(network,
+        await SwitchAsync(new PasswordRetry(network.Network, network.WindowsProfileName), profile,
             report => applier.SwitchAsync(adapter, network.Network, network.WindowsProfileName, profile, report, CancellationToken.None));
     }
 
@@ -170,23 +170,31 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     /// «Подключиться…» у новой сети: переключение с созданием профиля сети Windows. Пароль сюда приходит из окна
     /// ввода пароля и дальше профиля сети Windows не уходит.
     /// </summary>
-    public Task ConnectNewAsync(NetworkRow network, NewNetworkSecurity security, string password, bool autoConnect)
+    public Task ConnectNewAsync(NewNetwork request, string password)
     {
-        if (!CanSwitch || network.Profile == null) return Task.CompletedTask;
+        if (!CanSwitch) return Task.CompletedTask;
+        if (NetworkKey.Comparer.Equals(request.Name, _state!.Network))
+        {
+            Error = "Вы уже подключены к сети «" + request.Name + "».";
+            return Task.CompletedTask;
+        }
         Adapter adapter = _state!.Adapter!;
-        Profile profile = network.Profile;
-        NewWindowsProfile windowsProfile = WindowsProfileXml.Build(network.Network, security, password, autoConnect);
-        return SwitchAsync(network, report => applier.SwitchToNewAsync(adapter, network.Network, windowsProfile, profile, report, CancellationToken.None));
+        Profile profile = store.Profiles.ProfileFor(request.Name);
+        NewWindowsProfile windowsProfile = request.Hidden
+            ? WindowsProfileXml.BuildHidden(request.Name, request.Security, password, request.AutoConnect)
+            : WindowsProfileXml.Build(request.Name, request.Security, password, request.AutoConnect);
+        return SwitchAsync(new PasswordRetry(request.Name, "", request), profile,
+            report => applier.SwitchToNewAsync(adapter, request.Name, windowsProfile, profile, report, CancellationToken.None));
     }
 
     /// <summary>«Ввести пароль заново» у знакомой сети: новый пароль в её профиле сети Windows и переключение.</summary>
-    public Task ReenterPasswordAsync(NetworkRow network, string password)
+    public Task ReenterPasswordAsync(PasswordRetry retry, string password)
     {
-        if (!CanSwitch || network.Profile == null) return Task.CompletedTask;
+        if (!CanSwitch) return Task.CompletedTask;
         Adapter adapter = _state!.Adapter!;
-        Profile profile = network.Profile;
-        return SwitchAsync(network,
-            report => applier.SwitchWithPasswordAsync(adapter, network.Network, network.WindowsProfileName, password, profile, report, CancellationToken.None));
+        Profile profile = store.Profiles.ProfileFor(retry.Network);
+        return SwitchAsync(retry, profile,
+            report => applier.SwitchWithPasswordAsync(adapter, retry.Network, retry.WindowsProfileName, password, profile, report, CancellationToken.None));
     }
 
     [RelayCommand(CanExecute = nameof(IsIdle))]
@@ -213,12 +221,12 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     }
 
     /// <summary>Переключение; если Windows отвергла пароль, у хода появляется «Ввести пароль заново».</summary>
-    private Task SwitchAsync(NetworkRow network, Func<Action<StepResult>, Task<SwitchResult>> run)
+    private Task SwitchAsync(PasswordRetry retry, Profile profile, Func<Action<StepResult>, Task<SwitchResult>> run)
     {
-        return RunAsync("Переключение на сеть «" + network.Network + "», профиль «" + network.Profile!.Name + "»", async report =>
+        return RunAsync("Переключение на сеть «" + retry.Network + "», профиль «" + profile.Name + "»", async report =>
         {
             SwitchResult result = await run(report);
-            if (result.PasswordRejected) PasswordRejected = network;
+            if (result.PasswordRejected) PasswordRejected = retry;
         });
     }
 
@@ -289,6 +297,10 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         return parts.Count == 0 ? "нет" : string.Join(" · ", parts);
     }
 }
+
+internal sealed record NewNetwork(string Name, NewNetworkSecurity Security, bool Hidden = false, bool AutoConnect = true);
+
+internal sealed record PasswordRetry(string Network, string WindowsProfileName, NewNetwork? NewNetwork = null);
 
 /// <summary>Признак проблемы или расхождение в блоке «Сейчас».</summary>
 /// <param name="Apply">«Применить» у расхождения; null у остальных признаков.</param>

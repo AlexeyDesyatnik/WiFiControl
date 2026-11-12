@@ -210,7 +210,7 @@
         <TextBlock DockPanel.Dock="Top" Text="Сети рядом" FontSize="13" FontWeight="SemiBold"
                    Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="2,12,0,2" />
 
-        <ListBox ItemsSource="{Binding Networks}" BorderThickness="0" Background="Transparent"
+        <ListBox x:Name="NetworkList" BorderThickness="0" Background="Transparent"
                  HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
             <!-- Строки Fluent-темы по умолчанию слишком высокие для списка сетей -->
             <ListBox.ItemContainerStyle>
@@ -219,7 +219,12 @@
                     <Setter Property="Padding" Value="10,4" />
                 </Style>
             </ListBox.ItemContainerStyle>
-            <ListBox.ItemTemplate>
+            <ListBox.Resources>
+                <ListBoxItem x:Key="HiddenNetworkRow">
+                    <Button Content="Скрытая сеть…" Click="OnConnectHiddenClick"
+                            IsEnabled="{Binding DataContext.CanSwitch, RelativeSource={RelativeSource AncestorType=Window}}"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" />
+                </ListBoxItem>
                 <DataTemplate DataType="local:NetworkRowViewModel">
                     <DockPanel Margin="0,2">
                         <local:SignalBars DockPanel.Dock="Left" Signal="{Binding Signal}" Margin="0,0,10,0" />
@@ -284,7 +289,7 @@
                         </TextBlock>
                     </DockPanel>
                 </DataTemplate>
-            </ListBox.ItemTemplate>
+            </ListBox.Resources>
         </ListBox>
     </DockPanel>
 </Window>

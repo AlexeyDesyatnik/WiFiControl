@@ -29,6 +29,7 @@ public class WindowsProfileXmlTests
         Assert.Equal("Кафе & Co", Value(root, "name"));
         Assert.Equal("Кафе & Co", Value(root, "SSIDConfig", "SSID", "name"));
         Assert.Equal("D09AD0B0D184D0B5202620436F", Value(root, "SSIDConfig", "SSID", "hex"));
+        Assert.Null(Value(root, "SSIDConfig", "nonBroadcast"));
         Assert.Equal("ESS", Value(root, "connectionType"));
     }
 
@@ -39,6 +40,31 @@ public class WindowsProfileXmlTests
 
         Assert.Equal("hex:CFF0E8E2E5F2", profile.Name);
         Assert.Equal("CFF0E8E2E5F2", Value(Parse(profile), "SSIDConfig", "SSID", "hex"));
+    }
+
+    [Theory]
+    [InlineData("Кафе", "D09AD0B0D184D0B5")]
+    [InlineData("hex:FF", "6865783A4646")]
+    public void Hidden_network_keeps_the_typed_name_and_gets_the_non_broadcast_flag(string name, string hex)
+    {
+        NewWindowsProfile profile = WindowsProfileXml.BuildHidden(name, NewNetworkSecurity.Wpa2Personal, "12345678", autoConnect: false);
+        XElement root = Parse(profile);
+
+        Assert.Equal(name, profile.Name);
+        Assert.Equal(name, Value(root, "SSIDConfig", "SSID", "name"));
+        Assert.Equal(hex, Value(root, "SSIDConfig", "SSID", "hex"));
+        Assert.Equal("true", Value(root, "SSIDConfig", "nonBroadcast"));
+        Assert.Equal("manual", Value(root, "connectionMode"));
+    }
+
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("ЯЯЯЯЯЯЯЯЯЯЯЯЯЯЯЯ", true)]
+    [InlineData("ЯЯЯЯЯЯЯЯЯЯЯЯЯЯЯЯa", false)]
+    [InlineData("Дом\0", false)]
+    public void Hidden_name_fits_the_utf8_limit_and_the_xml_profile(string name, bool valid)
+    {
+        Assert.Equal(valid, WindowsProfileXml.IsValidHiddenName(name));
     }
 
     [Theory]

@@ -1,3 +1,5 @@
+using System.Text;
+using System.Xml;
 using System.Xml.Linq;
 
 namespace WiFiControl.Core.Model;
@@ -46,7 +48,31 @@ public static class WindowsProfileXml
     /// <param name="network">Ключ сети (ADR 0007).</param>
     /// <param name="password">Пароль (<see cref="WifiPassword"/>); у открытой сети — пустой.</param>
     /// <param name="autoConnect">Режим автоподключения: Windows подключается к сети сама.</param>
-    public static NewWindowsProfile Build(string network, NewNetworkSecurity security, string password, bool autoConnect)
+    public static NewWindowsProfile Build(string network, NewNetworkSecurity security, string password, bool autoConnect) =>
+        Build(network, NetworkKey.ToBytes(network), security, password, autoConnect, hidden: false);
+
+    /// <summary>Имя скрытой сети должно помещаться в 32 байта UTF-8 и записываться в XML профиля сети Windows.</summary>
+    public static bool IsValidHiddenName(string name)
+    {
+        try
+        {
+            XmlConvert.VerifyXmlChars(name);
+            return Encoding.UTF8.GetByteCount(name) is > 0 and <= 32;
+        }
+        catch (XmlException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Профиль скрытой сети. Введённое имя — текст и одновременно ключ сети (ADR 0007).</summary>
+    public static NewWindowsProfile BuildHidden(string name, NewNetworkSecurity security, string password, bool autoConnect)
+    {
+        if (!IsValidHiddenName(name)) throw new ArgumentException("Имя сети должно занимать от 1 до 32 байт в UTF-8.", nameof(name));
+        return Build(name, Encoding.UTF8.GetBytes(name), security, password, autoConnect, hidden: true);
+    }
+
+    private static NewWindowsProfile Build(string network, byte[] ssid, NewNetworkSecurity security, string password, bool autoConnect, bool hidden)
     {
         bool open = security == NewNetworkSecurity.Open;
         if (open ? password.Length > 0 : !WifiPassword.IsValid(password, AcceptsKey(security)))
@@ -70,8 +96,9 @@ public static class WindowsProfileXml
             new XElement(V1 + "name", network),
             new XElement(V1 + "SSIDConfig",
                 new XElement(V1 + "SSID",
-                    new XElement(V1 + "hex", Convert.ToHexString(NetworkKey.ToBytes(network))),
-                    new XElement(V1 + "name", network))),
+                    new XElement(V1 + "hex", Convert.ToHexString(ssid)),
+                    new XElement(V1 + "name", network)),
+                hidden ? new XElement(V1 + "nonBroadcast", true) : null),
             new XElement(V1 + "connectionType", "ESS"),
             new XElement(V1 + "connectionMode", autoConnect ? "auto" : "manual"),
             new XElement(V1 + "MSM", securityElement));

@@ -66,12 +66,17 @@ public class NewNetworkSwitchTests
         Assert.False(result.PasswordRejected);
     }
 
-    [Fact]
-    public async Task Wrong_password_deletes_the_created_windows_profile_and_returns()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Wrong_password_deletes_the_created_windows_profile_and_returns(bool hidden)
     {
         _wifi.Failing["Cafe"] = WlanReason.PskMismatchSuspected;
 
-        SwitchResult result = await SwitchToCafeAsync();
+        NewWindowsProfile windowsProfile = hidden
+            ? WindowsProfileXml.BuildHidden("Cafe", NewNetworkSecurity.Wpa2Personal, "cafe-1234", autoConnect: true)
+            : _cafe;
+        SwitchResult result = await _applier.SwitchToNewAsync(_adapter, "Cafe", windowsProfile, Profile.Automatic, null, CancellationToken.None);
 
         Assert.Equal([Disconnect, Ipv4, Create, ConnectCafe, Ipv4Rollback, Delete, Return], result.Steps.Select(step => step.Title));
         Assert.Equal([ConnectCafe], result.Steps.Where(step => !step.Ok).Select(step => step.Title));

@@ -2,6 +2,7 @@ using System.Net.NetworkInformation;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Threading;
 using WiFiControl.Core.Model;
 
@@ -26,6 +27,11 @@ internal partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = _model = model;
+        NetworkList.ItemsSource = new CompositeCollection
+        {
+            new CollectionContainer { Collection = model.Networks },
+            NetworkList.FindResource("HiddenNetworkRow"),
+        };
 
         _listTimer = new DispatcherTimer(ListInterval, DispatcherPriority.Background, (_, _) => LoadIfVisible(), Dispatcher);
         _settleTimer = new DispatcherTimer(SettleDelay, DispatcherPriority.Background, (_, _) => OnSettled(), Dispatcher) { IsEnabled = false };
@@ -83,8 +89,11 @@ internal partial class MainWindow : Window
     {
         var row = (NetworkRowViewModel)((Button)sender).DataContext;
         if (row.NewSecurity is not { } security) return;
-        await ConnectNewAsync(row.Row, security);
+        await ConnectNewAsync(new NewNetwork(row.Row.Network, security));
     }
+
+    private async void OnConnectHiddenClick(object sender, RoutedEventArgs e) =>
+        await ConnectNewAsync(new NewNetwork("", NewNetworkSecurity.Wpa2Personal, Hidden: true));
 
     /// <summary>
     /// У знакомой сети — новый пароль в её профиле сети Windows. Сети, чей профиль сети Windows создало и удалило
@@ -92,21 +101,29 @@ internal partial class MainWindow : Window
     /// </summary>
     private async void OnReenterPasswordClick(object sender, RoutedEventArgs e)
     {
-        if (_model.PasswordRejected is not { } network) return;
-        if (network.WindowsProfileName.Length == 0)
+        if (_model.PasswordRejected is not { } retry) return;
+        if (retry.NewNetwork is { } request)
         {
-            if (WindowsProfileXml.SecurityFor(network.Security) is { } security) await ConnectNewAsync(network, security);
+            await ConnectNewAsync(request);
             return;
         }
 
-        var dialog = new PasswordWindow(network.Network, security: null) { Owner = this };
-        if (dialog.ShowDialog() == true) await _model.ReenterPasswordAsync(network, dialog.PasswordText);
+        var dialog = new PasswordWindow(retry.Network, security: null) { Owner = this };
+        if (dialog.ShowDialog() == true) await _model.ReenterPasswordAsync(retry, dialog.PasswordText);
     }
 
-    private async Task ConnectNewAsync(NetworkRow network, NewNetworkSecurity security)
+    private async Task ConnectNewAsync(NewNetwork request)
     {
-        var dialog = new PasswordWindow(network.Network, security) { Owner = this };
-        if (dialog.ShowDialog() == true) await _model.ConnectNewAsync(network, security, dialog.PasswordText, dialog.IsAutoConnect);
+        var dialog = new PasswordWindow(request) { Owner = this };
+        if (dialog.ShowDialog() == true && dialog.Security is { } selected)
+        {
+            await _model.ConnectNewAsync(request with
+            {
+                Name = request.Hidden ? dialog.HiddenName : request.Name,
+                Security = selected,
+                AutoConnect = dialog.IsAutoConnect,
+            }, dialog.PasswordText);
+        }
     }
 
     // Список профилей собирается при нажатии: профили могли измениться

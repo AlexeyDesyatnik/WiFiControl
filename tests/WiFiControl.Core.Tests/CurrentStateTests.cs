@@ -60,14 +60,16 @@ public class CurrentStateTests
     }
 
     [Fact]
-    public async Task Entries_with_empty_name_are_not_shown()
+    public async Task Hidden_network_with_a_windows_profile_has_a_normal_row()
     {
         _wifi.Networks.Add(FakeWifi.Entry("", 90));
-        _wifi.Networks.Add(FakeWifi.Entry("Office", 50));
+        _wifi.Networks.Add(FakeWifi.Entry("Office", 50, windowsProfile: "Hidden Office"));
 
         CurrentState state = await ReadAsync();
 
-        Assert.Equal("Office", Assert.Single(state.Networks).Network);
+        NetworkRow row = Assert.Single(state.Networks);
+        Assert.Equal("Office", row.Network);
+        Assert.Equal("Hidden Office", row.WindowsProfileName);
     }
 
     [Fact]
