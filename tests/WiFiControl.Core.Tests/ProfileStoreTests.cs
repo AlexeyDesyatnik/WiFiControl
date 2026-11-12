@@ -123,6 +123,29 @@ public sealed class ProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public void Failed_profile_edit_leaves_the_previous_profiles_and_bindings_available()
+    {
+        var store = Loaded();
+        var office = new Profile { Name = "Офис" };
+        Assert.Empty(store.Profiles.Add(office));
+        store.Profiles.Bind("Office", office.Id);
+        store.Save();
+
+        string temporary = FilePath + ".tmp";
+        using (File.Create(temporary))
+        {
+            Assert.Throws<IOException>(() => store.Edit(profiles =>
+            {
+                profiles.Remove(office.Id);
+                return [];
+            }));
+        }
+
+        Assert.Equal("Офис", store.Profiles.ProfileFor("Office").Name);
+        Assert.Equal("Офис", Loaded().Profiles.ProfileFor("Office").Name);
+    }
+
+    [Fact]
     public void Directory_in_place_of_profiles_is_a_read_error_and_reload_recovers_after_repair()
     {
         Directory.CreateDirectory(FilePath);
@@ -212,9 +235,9 @@ public sealed class ProfileStoreTests : IDisposable
         { FileJson(version: 0), "неверная версия формата" },
         { FileJson(ProfileJson(OfficeId, "Офис", """{ "autoAddress": true, "autoDns": false, "dns": [ null ] }""")), "повреждён" },
         { FileJson(ProfileJson(OfficeId, "Офис", """{ "autoAddress": false, "address": "10.68.12.300", "mask": "/24" }""")), "Адрес IPv4 задан неверно" },
-        { FileJson(ProfileJson(OfficeId, "Офис") + "," + ProfileJson(LabId, "офис")), "Профиль с названием «офис» уже есть" },
+        { FileJson(ProfileJson(OfficeId, "Офис") + "," + ProfileJson(LabId, "офис")), "Профиль с названием офис уже есть" },
         { FileJson(ProfileJson(OfficeId, "автоматически")), "занято встроенным профилем" },
-        { FileJson(ProfileJson(AutomaticId, "Мой")), "«Автоматически»" },
+        { FileJson(ProfileJson(AutomaticId, "Мой")), "id встроенного профиля Автоматически" },
         { FileJson(ProfileJson(OfficeId, "Офис") + "," + ProfileJson(OfficeId, "Лаборатория")), "id " + OfficeId },
         { FileJson(bindings: $$"""{ "network": "Office", "profile": "{{LabId}}" }"""), "нет профиля с id " + LabId },
         { FileJson(defaultProfile: LabId), "нет профиля с id " + LabId },

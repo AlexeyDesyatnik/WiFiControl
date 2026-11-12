@@ -217,7 +217,7 @@ public class ProfileSetTests
 
         var error = Assert.Throws<InvalidOperationException>(() => set.Remove(Profile.AutomaticId));
 
-        Assert.Equal("Профиль «Автоматически» встроенный, его нельзя удалить.", error.Message);
+        Assert.Equal("Профиль Автоматически встроенный, его нельзя удалить.", error.Message);
         Assert.Equal(Profile.AutomaticId, set.Bindings["Гостевая"]);
     }
 
@@ -245,7 +245,7 @@ public class ProfileSetTests
 
         List<string> errors = set.Add(Named(name));
 
-        Assert.Equal(["Профиль с названием «" + name.Trim() + "» уже есть."], errors);
+        Assert.Equal(["Профиль с названием " + name.Trim() + " уже есть."], errors);
         Assert.Single(set.Profiles);
     }
 
@@ -258,7 +258,7 @@ public class ProfileSetTests
 
         List<string> errors = set.Add(Named(name));
 
-        Assert.Equal(["Название «Автоматически» занято встроенным профилем."], errors);
+        Assert.Equal(["Название Автоматически занято встроенным профилем."], errors);
         Assert.Empty(set.Profiles);
     }
 
@@ -269,7 +269,7 @@ public class ProfileSetTests
         Profile automatic = Profile.Automatic;
         automatic.Name = "Мой DHCP";
 
-        Assert.Equal(["Профиль «Автоматически» встроенный, его нельзя добавить."], set.Add(automatic));
+        Assert.Equal(["Профиль Автоматически встроенный, его нельзя добавить."], set.Add(automatic));
         Assert.Empty(set.Profiles);
     }
 
@@ -316,7 +316,7 @@ public class ProfileSetTests
         office.Name = "ДОМ";
         office.Proxy.Enabled = true;
 
-        Assert.Equal(["Профиль с названием «ДОМ» уже есть.", "Укажите прокси-сервер. Пример: 10.0.68.52:3128"], set.Update(office).Order());
+        Assert.Equal(["Профиль с названием ДОМ уже есть.", "Укажите прокси-сервер. Пример: 10.0.68.52:3128"], set.Update(office).Order());
         Profile kept = set.Find(office.Id)!;
         Assert.Equal("Офис", kept.Name);
         Assert.False(kept.Proxy.Enabled);
@@ -330,7 +330,7 @@ public class ProfileSetTests
 
         office.Name = "АВТОМАТИЧЕСКИ";
 
-        Assert.Equal(["Название «Автоматически» занято встроенным профилем."], set.Update(office));
+        Assert.Equal(["Название Автоматически занято встроенным профилем."], set.Update(office));
         Assert.Equal("Офис", set.Find(office.Id)!.Name);
     }
 
@@ -342,7 +342,7 @@ public class ProfileSetTests
         automatic.Proxy.Enabled = true;
         automatic.Proxy.Server = "10.0.68.52:3128";
 
-        Assert.Equal(["Профиль «Автоматически» встроенный, его нельзя изменить."], set.Update(automatic));
+        Assert.Equal(["Профиль Автоматически встроенный, его нельзя изменить."], set.Update(automatic));
         Assert.False(set.Find(Profile.AutomaticId)!.Proxy.Enabled);
     }
 

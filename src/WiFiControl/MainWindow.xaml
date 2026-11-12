@@ -22,6 +22,8 @@
             <Button DockPanel.Dock="Right" Command="{Binding RefreshCommand}" Click="OnRefreshClick" ToolTip="Обновить" Padding="8,6">
                 <TextBlock Text="&#xE72C;" FontFamily="{StaticResource Icons}" FontSize="14" />
             </Button>
+            <Button DockPanel.Dock="Right" Content="Профили и привязки…" Click="OnEditProfilesClick"
+                    IsEnabled="{Binding CanEditProfiles}" Margin="0,0,8,0" Padding="8,6" />
             <Grid Margin="0,0,8,0">
                 <TextBlock Text="{Binding AdapterName}" ToolTip="Wi-Fi-адаптер">
                     <TextBlock.Style>

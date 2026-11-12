@@ -43,11 +43,17 @@ public sealed class ProfileSet
     /// <summary>
     /// Меняет привязку сети; null снимает её. Возвращает, изменился ли профиль для текущей сети.
     /// </summary>
-    public bool ChangeBinding(string network, Guid? profileId, string? currentNetwork)
+    public bool ChangeBinding(string network, Guid? profileId, string? currentNetwork) =>
+        ChangeSelection(currentNetwork, () =>
+        {
+            if (profileId is { } id) Bind(network, id);
+            else Unbind(network);
+        });
+
+    internal bool ChangeSelection(string? currentNetwork, Action change)
     {
         Guid? before = currentNetwork == null ? null : ProfileIdFor(currentNetwork);
-        if (profileId is { } id) Bind(network, id);
-        else Unbind(network);
+        change();
         return currentNetwork != null && before != ProfileIdFor(currentNetwork);
     }
 
@@ -75,7 +81,7 @@ public sealed class ProfileSet
     /// <summary>Добавляет копию профиля, если он проходит проверку. Возвращает ошибки по-русски.</summary>
     public List<string> Add(Profile profile)
     {
-        if (profile.IsAutomatic) return ["Профиль «Автоматически» встроенный, его нельзя добавить."];
+        if (profile.IsAutomatic) return ["Профиль Автоматически встроенный, его нельзя добавить."];
         if (_profiles.Exists(existing => existing.Id == profile.Id))
             throw new ArgumentException("Профиль с id " + profile.Id + " уже есть.", nameof(profile));
 
@@ -90,7 +96,7 @@ public sealed class ProfileSet
     /// </summary>
     public List<string> Update(Profile profile)
     {
-        if (profile.IsAutomatic) return ["Профиль «Автоматически» встроенный, его нельзя изменить."];
+        if (profile.IsAutomatic) return ["Профиль Автоматически встроенный, его нельзя изменить."];
         RequireProfile(profile.Id);
 
         List<string> errors = Check(profile);
@@ -105,7 +111,7 @@ public sealed class ProfileSet
     public IReadOnlyList<string> Remove(Guid id)
     {
         if (id == Profile.AutomaticId)
-            throw new InvalidOperationException("Профиль «Автоматически» встроенный, его нельзя удалить.");
+            throw new InvalidOperationException("Профиль Автоматически встроенный, его нельзя удалить.");
         RequireProfile(id);
 
         List<string> affected = _bindings.Where(binding => binding.Value == id).Select(binding => binding.Key).ToList();
@@ -131,9 +137,9 @@ public sealed class ProfileSet
         if (profile.Name.Length == 0) return errors;
 
         if (SameName(profile.Name, Profile.AutomaticName))
-            errors.Add("Название «" + Profile.AutomaticName + "» занято встроенным профилем.");
+            errors.Add("Название " + Profile.AutomaticName + " занято встроенным профилем.");
         else if (_profiles.Exists(other => other.Id != profile.Id && SameName(other.Name, profile.Name)))
-            errors.Add("Профиль с названием «" + profile.Name + "» уже есть.");
+            errors.Add("Профиль с названием " + profile.Name + " уже есть.");
         return errors;
     }
 

@@ -57,7 +57,7 @@ public static class WindowsProfileXml
         try
         {
             XmlConvert.VerifyXmlChars(name);
-            return Encoding.UTF8.GetByteCount(name) is > 0 and <= 32;
+            return NetworkKey.IsValidText(name);
         }
         catch (XmlException)
         {

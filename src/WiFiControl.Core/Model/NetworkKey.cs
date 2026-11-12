@@ -15,6 +15,19 @@ public static class NetworkKey
 
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
+    /// <summary>Введённое имя сети должно занимать от 1 до 32 байт в UTF-8.</summary>
+    public static bool IsValidText(string name)
+    {
+        try
+        {
+            return StrictUtf8.GetByteCount(name) is > 0 and <= 32;
+        }
+        catch (EncoderFallbackException)
+        {
+            return false;
+        }
+    }
+
     public static string FromBytes(ReadOnlySpan<byte> ssid)
     {
         try

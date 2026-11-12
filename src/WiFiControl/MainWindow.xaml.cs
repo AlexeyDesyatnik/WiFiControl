@@ -185,6 +185,16 @@ internal partial class MainWindow : Window
         return false;
     }
 
+    private void OnEditProfilesClick(object sender, RoutedEventArgs e)
+    {
+        if (!_model.CanEditProfiles) return;
+        new ProfilesWindow(_model) { Owner = this }.ShowDialog();
+    }
+
+    internal static bool ConfirmApply(Window owner, Profile profile) =>
+        MessageBox.Show(owner, "Применить профиль " + profile.Name + " к текущей сети сейчас?",
+            "WiFiControl", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes;
+
     private void OnChooseBindingClick(object sender, RoutedEventArgs e)
     {
         if (!_model.CanUseNetworkProfiles || _model.SelectedWifiAdapter is not { } adapter) return;
@@ -192,7 +202,7 @@ internal partial class MainWindow : Window
         var row = (NetworkRowViewModel)button.DataContext;
         var menu = new ContextMenu { PlacementTarget = button, Placement = PlacementMode.Bottom };
         AddChoice("Без привязки", null);
-        foreach (Profile profile in _model.ProfileChoices) AddChoice("«" + profile.Name + "»", profile.Id);
+        foreach (Profile profile in _model.ProfileChoices) AddChoice(profile.Name, profile.Id);
         menu.IsOpen = true;
 
         void AddChoice(string name, Guid? profileId)
@@ -203,9 +213,8 @@ internal partial class MainWindow : Window
                 IsCheckable = true,
                 IsChecked = profileId == row.BindingProfileId,
             };
-            item.Click += async (_, _) => await _model.ChangeBindingAsync(row.Name, profileId, adapter.Id,
-                profile => MessageBox.Show(this, "Применить профиль «" + profile.Name + "» к текущей сети сейчас?",
-                    "WiFiControl", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes);
+            item.Click += async (_, _) => await _model.ChangeBindingAsync(row.Name, profileId,
+                profile => ConfirmApply(this, profile), adapter.Id);
             menu.Items.Add(item);
         }
     }

@@ -75,13 +75,35 @@ public sealed class ProfileStore
     }
 
     /// <summary>Сохраняет изменённую привязку и возвращает, изменился ли профиль для текущей сети.</summary>
-    public bool ChangeBinding(string network, Guid? profileId, string? currentNetwork)
+    public bool ChangeBinding(string network, Guid? profileId, string? currentNetwork) =>
+        EditSelection(profiles => profiles.ChangeBinding(network, profileId, currentNetwork));
+
+    public bool ChangeDefaultProfile(Guid id, string? currentNetwork) =>
+        EditSelection(profiles => profiles.ChangeSelection(currentNetwork, () => profiles.DefaultProfileId = id));
+
+    public bool RemoveProfile(Guid id, string? currentNetwork) =>
+        EditSelection(profiles => profiles.ChangeSelection(currentNetwork, () => profiles.Remove(id)));
+
+    private bool EditSelection(Func<ProfileSet, bool> change)
+    {
+        bool affectsCurrent = false;
+        Edit(profiles =>
+        {
+            affectsCurrent = change(profiles);
+            return [];
+        });
+        return affectsCurrent;
+    }
+
+    /// <summary>Публикует изменения только после проверки и успешной записи. Возвращает ошибки проверки.</summary>
+    public IReadOnlyList<string> Edit(Func<ProfileSet, IReadOnlyList<string>> change)
     {
         ProfileSet updated = Profiles.Copy();
-        bool affectsCurrent = updated.ChangeBinding(network, profileId, currentNetwork);
+        IReadOnlyList<string> errors = change(updated);
+        if (errors.Count != 0) return errors;
         Save(updated);
         Profiles = updated;
-        return affectsCurrent;
+        return errors;
     }
 
     /// <summary>Записывает во временный файл рядом, затем перемещает его поверх прежнего.</summary>
@@ -147,13 +169,13 @@ public sealed class ProfileStore
         {
             if (stored == null) throw Corrupt("профиль должен быть объектом.");
             string name = stored.Name ?? "";
-            if (stored.Id is not Guid id) throw Corrupt("у профиля «" + name + "» нет id.");
+            if (stored.Id is not Guid id) throw Corrupt("у профиля " + name + " нет id.");
             if (id == Profile.AutomaticId)
-                throw new FormatException("У профиля «" + name + "» id встроенного профиля «" + Profile.AutomaticName + "».");
+                throw new FormatException("У профиля " + name + " id встроенного профиля " + Profile.AutomaticName + ".");
             if (set.Find(id) != null) throw new FormatException("Два профиля с id " + id + ".");
 
             List<string> errors = set.Add(ToProfile(id, stored));
-            if (errors.Count > 0) throw new FormatException("Профиль «" + name.Trim() + "» задан неверно. " + string.Join(" ", errors));
+            if (errors.Count > 0) throw new FormatException("Профиль " + name.Trim() + " задан неверно. " + string.Join(" ", errors));
         }
 
         foreach (StoredBinding? binding in file.Bindings ?? [])
@@ -202,7 +224,7 @@ public sealed class ProfileStore
     private static List<string> Entries(List<string?>? list, string what, string profileName)
     {
         if (list == null) return [];
-        if (list.Contains(null)) throw Corrupt("в списке " + what + " профиля «" + profileName.Trim() + "» есть null.");
+        if (list.Contains(null)) throw Corrupt("в списке " + what + " профиля " + profileName.Trim() + " есть null.");
         return list!;
     }
 

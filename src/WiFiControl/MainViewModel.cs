@@ -101,6 +101,10 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
     public bool CanEditProfiles => !IsBusy && ReadableProfiles != null;
 
+    public ProfileSet ProfilesForEditor => store.Profiles;
+
+    public string? CurrentNetworkForEditor => _state?.Network;
+
     /// <summary>Для действий с профилем сети список должен соответствовать прочитанному файлу профилей.</summary>
     public bool CanUseNetworkProfiles => CanUseWifi && CanEditProfiles && ReferenceEquals(_displayedProfiles, ReadableProfiles);
 
@@ -267,57 +271,122 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         await LoadAsync();
     }
 
-    public async Task ChangeBindingAsync(string networkKey, Guid? profileId, Guid adapterId, Func<Profile, bool> confirmApply)
+    public IReadOnlyList<string> SaveProfile(Profile profile)
     {
-        if (!CanUseNetworkProfiles || SelectedWifiAdapter?.Id != adapterId) return;
+        if (!CanEditProfiles) return ["Редактирование профилей сейчас недоступно."];
+        try
+        {
+            IReadOnlyList<string> errors = store.Edit(profiles => profiles.Find(profile.Id) == null
+                ? profiles.Add(profile)
+                : profiles.Update(profile));
+            if (errors.Count == 0)
+            {
+                _bindingError = null;
+                NotifyNetworkActions();
+            }
+            return errors;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return ["Не удалось сохранить профиль. " + e.Message];
+        }
+    }
+
+    public Task<string?> ChangeBindingAsync(string networkKey, Guid? profileId, Func<Profile, bool> confirmApply,
+        Guid? requiredAdapterId = null)
+    {
         ProfileSet profiles = store.Profiles;
-        if (profileId is { } id && profiles.Find(id) == null) return;
+        if (profileId is { } id && profiles.Find(id) == null)
+            return Task.FromResult<string?>("Профиль для привязки больше недоступен.");
         Guid? previous = profiles.Bindings.TryGetValue(networkKey, out Guid boundId) ? boundId : null;
-        if (previous == profileId) return;
+        if (previous == profileId) return Task.FromResult<string?>(null);
+        return ChangeProfileSelectionAsync(
+            current => store.ChangeBinding(networkKey, profileId, current), confirmApply, requiredAdapterId);
+    }
+
+    public Task<string?> ChangeDefaultProfileAsync(Guid id, Func<Profile, bool> confirmApply) =>
+        ChangeProfileSelectionAsync(current => store.ChangeDefaultProfile(id, current), confirmApply);
+
+    public Task<string?> RemoveProfileAsync(Guid id, Func<Profile, bool> confirmApply) =>
+        ChangeProfileSelectionAsync(current => store.RemoveProfile(id, current), confirmApply);
+
+    private async Task<string?> ChangeProfileSelectionAsync(Func<string?, bool> save, Func<Profile, bool> confirmApply,
+        Guid? requiredAdapterId = null)
+    {
+        if (!CanEditProfiles || (requiredAdapterId != null &&
+            (!CanUseNetworkProfiles || SelectedWifiAdapter?.Id != requiredAdapterId)))
+            return "Редактирование профилей сейчас недоступно.";
 
         IsBusy = true;
         _bindingError = null;
-        Adapter? adapter = _state?.Adapter;
+        string? currentNetwork = null;
+        Adapter? adapter = null;
         Profile? profileToApply = null;
+        bool saved = false;
         try
         {
-            string? currentNetwork = await ReadCurrentNetworkKeyAsync(adapterId);
-            bool affectsCurrent;
+            Guid? adapterId = requiredAdapterId;
+            string? readError = null;
             try
             {
-                affectsCurrent = store.ChangeBinding(networkKey, profileId, currentNetwork);
+                adapterId ??= await ReadSelectedWifiAdapterIdAsync();
+                if (adapterId is { } id) currentNetwork = await ReadCurrentNetworkKeyAsync(id);
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            catch (WifiLocationAccessDeniedException) when (requiredAdapterId == null)
             {
-                Error = _bindingError = "Не удалось сохранить привязку: " + e.Message;
-                return;
+                // Редактор доступен и без доступа к местоположению.
+            }
+            catch (InvalidOperationException e) when (requiredAdapterId == null)
+            {
+                readError = e.Message;
             }
 
-            if (affectsCurrent)
+            bool affectsCurrent = save(currentNetwork);
+            saved = true;
+            if (readError != null)
+                _bindingError = "Изменения сохранены. Не удалось проверить текущую сеть. " + readError;
+            if (affectsCurrent && currentNetwork != null && adapterId is { } currentAdapterId)
             {
-                Profile profile = store.Profiles.ProfileFor(networkKey);
+                Profile profile = store.Profiles.ProfileFor(currentNetwork);
                 if (confirmApply(profile))
                 {
+                    IReadOnlyList<Adapter> adapters = await network.ReadAdaptersAsync(CancellationToken.None);
+                    adapter = adapters.FirstOrDefault(candidate => Guid.TryParse(candidate.Id, out Guid id) && id == currentAdapterId);
                     if (adapter == null)
-                        _bindingError = "Привязка сохранена, но не удалось прочитать настройки Wi-Fi-адаптера для применения.";
-                    else if (!NetworkKey.Comparer.Equals(currentNetwork, await ReadCurrentNetworkKeyAsync(adapterId)))
-                        _bindingError = "Привязка сохранена, но текущая сеть изменилась. Профиль не применён.";
+                        _bindingError = "Изменения сохранены. Не удалось прочитать настройки Wi-Fi-адаптера для применения.";
+                    else if (await ReadSelectedWifiAdapterIdAsync() != currentAdapterId
+                        || !NetworkKey.Comparer.Equals(currentNetwork, await ReadCurrentNetworkKeyAsync(currentAdapterId)))
+                        _bindingError = "Изменения сохранены. Текущая сеть или Wi-Fi-адаптер изменились, профиль не применён.";
                     else
                         profileToApply = profile;
                 }
             }
         }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _bindingError = "Не удалось сохранить изменения. " + e.Message;
+        }
         catch (InvalidOperationException e)
         {
-            _bindingError = e.Message;
+            _bindingError = saved ? "Изменения сохранены. Профиль не применён. " + e.Message : e.Message;
         }
         finally
         {
             IsBusy = false;
         }
 
-        if (profileToApply != null) await ApplyAsync(adapter!, networkKey, profileToApply);
+        string? error = _bindingError;
+        if (error != null) Error = error;
+        if (profileToApply != null) await ApplyAsync(adapter!, currentNetwork!, profileToApply);
         else await LoadAsync();
+        return error;
+    }
+
+    private async Task<Guid?> ReadSelectedWifiAdapterIdAsync()
+    {
+        IReadOnlyList<WifiAdapter> adapters = await wifi.ReadAdaptersAsync(CancellationToken.None);
+        WifiAdapter? selected = CurrentState.SelectWifiAdapter(adapters, _preferredWifiAdapter);
+        return selected is { IsRadioOn: not false } ? selected.Id : null;
     }
 
     private async Task<string?> ReadCurrentNetworkKeyAsync(Guid adapterId)
@@ -408,13 +477,13 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     }
 
     private Task ApplyAsync(Adapter adapter, string networkKey, Profile profile) =>
-        RunAsync("Применение профиля «" + profile.Name + "»",
+        RunAsync("Применение профиля " + profile.Name,
             report => applier.ApplyProfileAsync(adapter, networkKey, profile, report, CancellationToken.None));
 
     /// <summary>Переключение; если Windows отвергла пароль, у хода появляется «Ввести пароль заново».</summary>
     private Task SwitchAsync(PasswordRetry retry, Profile profile, Func<Action<StepResult>, Task<SwitchResult>> run)
     {
-        return RunAsync("Переключение на сеть «" + retry.Network + "», профиль «" + profile.Name + "»", async report =>
+        return RunAsync("Переключение на сеть «" + retry.Network + "», профиль " + profile.Name, async report =>
         {
             SwitchResult result = await run(report);
             if (result.PasswordRejected) PasswordRejected = retry;
@@ -529,7 +598,7 @@ internal sealed record ProblemViewModel(string Title, string Details, IRelayComm
 
     public static ProblemViewModel FromMismatch(Mismatch mismatch, IRelayCommand apply)
     {
-        return new("Расхождение с профилем «" + mismatch.Expected.Name + "»",
+        return new("Расхождение с профилем " + mismatch.Expected.Name,
             "Отличаются: " + string.Join(", ", mismatch.Differences.Select(DifferenceText)) + ".", apply);
     }
 

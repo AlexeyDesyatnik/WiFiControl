@@ -1,0 +1,65 @@
+<Window x:Class="WiFiControl.ProfilesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:ClassModifier="internal"
+        Title="Профили и привязки" Width="620" Height="480" MinWidth="500" MinHeight="395"
+        ShowInTaskbar="False" WindowStartupLocation="CenterOwner">
+    <DockPanel Margin="16">
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+            <Button x:Name="CloseEditor" DockPanel.Dock="Right" Content="Закрыть" IsCancel="True" MinWidth="90" />
+            <TextBlock x:Name="SaveStatus" VerticalAlignment="Center" />
+        </DockPanel>
+        <TabControl x:Name="EditorTabs">
+            <TabItem Header="Профили">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                        <TextBlock x:Name="DefaultProfile" TextWrapping="Wrap" />
+                        <TextBlock x:Name="DefaultWarning" Margin="0,4,0,0" TextWrapping="Wrap"
+                                   Text="К сетям без привязки будут применяться настройки этого профиля." />
+                    </StackPanel>
+                    <WrapPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                        <Button Content="Создать…" Click="OnCreateProfile" Margin="0,0,6,0" />
+                        <Button x:Name="EditProfile" Content="Изменить…" Click="OnEditProfile" Margin="0,0,6,0" />
+                        <Button x:Name="DeleteProfile" Content="Удалить…" Click="OnDeleteProfile" Margin="0,0,6,0" />
+                        <Button x:Name="SetDefault" Content="Назначить по умолчанию" Click="OnSetDefault" />
+                    </WrapPanel>
+                    <ListBox x:Name="ProfileList" DisplayMemberPath="Name" SelectedValuePath="Id"
+                             SelectionChanged="OnProfileSelectionChanged" AutomationProperties.Name="Профили" />
+                </DockPanel>
+            </TabItem>
+            <TabItem Header="Привязки">
+                <DockPanel Margin="8">
+                    <Grid DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Label Content="Имя сети" Target="{Binding ElementName=NetworkName}" Padding="0,0,0,4" />
+                        <Label Grid.Column="1" Content="Профиль" Target="{Binding ElementName=BindingProfile}" Padding="0,0,0,4" />
+                        <TextBox Grid.Row="1" x:Name="NetworkName" Margin="0,0,8,0" />
+                        <ComboBox Grid.Row="1" Grid.Column="1" x:Name="BindingProfile"
+                                  DisplayMemberPath="Name" SelectedValuePath="Id" />
+                        <WrapPanel Grid.Row="2" Grid.ColumnSpan="2" Margin="0,8,0,0">
+                            <Button Content="Сохранить привязку" Click="OnSaveBinding" Margin="0,0,6,0" />
+                            <Button x:Name="DeleteBinding" Content="Снять выбранную привязку" Click="OnDeleteBinding" />
+                        </WrapPanel>
+                    </Grid>
+                    <ListView x:Name="BindingList" SelectionChanged="OnBindingSelectionChanged"
+                              SelectedValuePath="Network" AutomationProperties.Name="Привязки">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Сеть" Width="210" DisplayMemberBinding="{Binding Network}" />
+                                <GridViewColumn Header="Профиль" Width="210" DisplayMemberBinding="{Binding ProfileName}" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>
