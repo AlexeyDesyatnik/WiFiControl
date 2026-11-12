@@ -19,7 +19,7 @@
     <DockPanel Margin="12,10,12,12">
         <!-- Строка инструментов -->
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <Button DockPanel.Dock="Right" Command="{Binding RefreshCommand}" ToolTip="Обновить" Padding="8,6">
+            <Button DockPanel.Dock="Right" Command="{Binding RefreshCommand}" Click="OnRefreshClick" ToolTip="Обновить" Padding="8,6">
                 <TextBlock Text="&#xE72C;" FontFamily="{StaticResource Icons}" FontSize="14" />
             </Button>
             <Grid Margin="0,0,8,0">
@@ -124,6 +124,28 @@
                     <TextBlock Text="{Binding Error}" FontSize="11.5" TextWrapping="Wrap" />
                 </StackPanel>
             </DockPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Top" Margin="0,4,0,0" Padding="10,6,8,6" CornerRadius="6" BorderThickness="1"
+                Background="{DynamicResource SystemFillColorCriticalBackgroundBrush}"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding ProfileLoadError}" Value="{x:Null}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <StackPanel>
+                <TextBlock Text="Файл профилей не прочитан" FontSize="13" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding ProfileLoadError}" FontSize="11.5" TextWrapping="Wrap" />
+                <WrapPanel Margin="0,6,0,0">
+                    <Button Content="Открыть папку" Command="{Binding OpenProfilesFolderCommand}" Margin="0,0,8,0" />
+                    <Button Content="Перечитать" Command="{Binding ReloadProfilesCommand}" />
+                </WrapPanel>
+            </StackPanel>
         </Border>
 
         <!-- Признаки проблем и расхождение -->
@@ -239,8 +261,27 @@
         <TextBlock DockPanel.Dock="Top" Text="Сети рядом" FontSize="13" FontWeight="SemiBold"
                    Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="2,12,0,2" />
 
+        <StackPanel DockPanel.Dock="Top" Margin="2,8,0,0" Visibility="{Binding LocationAccessDenied, Converter={StaticResource Visible}}">
+            <TextBlock Text="Нет доступа к местоположению" FontSize="13" FontWeight="SemiBold" />
+            <TextBlock Text="Чтобы Windows показывала сети Wi-Fi, включите доступ к местоположению для классических приложений."
+                       FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" />
+            <WrapPanel Margin="0,8,0,0">
+                <Button Content="Открыть параметры" Command="{Binding OpenLocationSettingsCommand}" Margin="0,0,8,0" />
+                <Button Content="Проверить снова" Command="{Binding RefreshCommand}" Click="OnRefreshClick" />
+            </WrapPanel>
+        </StackPanel>
+
         <ListBox x:Name="NetworkList" BorderThickness="0" Background="Transparent"
                  HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.Style>
+                <Style TargetType="ListBox" BasedOn="{StaticResource {x:Type ListBox}}">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding LocationAccessDenied}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </ListBox.Style>
             <!-- Строки Fluent-темы по умолчанию слишком высокие для списка сетей -->
             <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
@@ -259,17 +300,8 @@
                         <CheckBox DockPanel.Dock="Bottom" Content="Не подключаться автоматически"
                                   Margin="26,2,0,0" FontSize="12" HorizontalAlignment="Left"
                                   Visibility="{Binding HasAutoConnectSetting, Converter={StaticResource Visible}}"
-                                  IsChecked="{Binding DoNotAutoConnect, Mode=OneWay}" Click="OnAutoConnectClick">
-                            <CheckBox.Style>
-                                <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding DataContext.IsBusy, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
-                                            <Setter Property="IsEnabled" Value="False" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </CheckBox.Style>
-                        </CheckBox>
+                                  IsEnabled="{Binding DataContext.CanUseWifi, RelativeSource={RelativeSource AncestorType=Window}}"
+                                  IsChecked="{Binding DoNotAutoConnect, Mode=OneWay}" Click="OnAutoConnectClick" />
                         <local:SignalBars DockPanel.Dock="Left" Signal="{Binding Signal}" Margin="0,0,10,0" />
                         <TextBlock DockPanel.Dock="Right" FontFamily="{StaticResource Icons}" FontSize="12" Margin="8,0,0,0"
                                    VerticalAlignment="Center" ToolTip="{Binding Security}"

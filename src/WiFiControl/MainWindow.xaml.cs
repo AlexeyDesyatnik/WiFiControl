@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Net.NetworkInformation;
 using System.Windows;
 using System.Windows.Controls;
@@ -19,14 +20,16 @@ internal partial class MainWindow : Window
     private static readonly TimeSpan SettleDelay = TimeSpan.FromSeconds(2);
 
     private readonly MainViewModel _model;
+    private readonly IWifiSystem _wifi;
     private readonly DispatcherTimer _listTimer;
     private readonly DispatcherTimer _settleTimer;
-    private readonly IDisposable? _notifications;
+    private IDisposable? _notifications;
 
     public MainWindow(MainViewModel model, IWifiSystem wifi)
     {
         InitializeComponent();
         DataContext = _model = model;
+        _wifi = wifi;
         NetworkList.ItemsSource = new CompositeCollection
         {
             new CollectionContainer { Collection = model.Networks },
@@ -36,15 +39,8 @@ internal partial class MainWindow : Window
         _listTimer = new DispatcherTimer(ListInterval, DispatcherPriority.Background, (_, _) => LoadIfVisible(), Dispatcher);
         _settleTimer = new DispatcherTimer(SettleDelay, DispatcherPriority.Background, (_, _) => OnSettled(), Dispatcher) { IsEnabled = false };
 
-        try
-        {
-            _notifications = wifi.Watch(notification => Dispatcher.BeginInvoke(() => OnNotification(notification)));
-        }
-        catch (InvalidOperationException e)
-        {
-            // Без уведомлений окно всё равно обновляется по таймеру и по «Обновить»
-            model.NotificationsError = e.Message;
-        }
+        SubscribeToWifiNotifications();
+        model.PropertyChanged += OnModelPropertyChanged;
         NetworkChange.NetworkAddressChanged += OnAddressChanged;
 
         Loaded += async (_, _) => await _model.RefreshAsync();
@@ -53,8 +49,32 @@ internal partial class MainWindow : Window
             _listTimer.Stop();
             _settleTimer.Stop();
             _notifications?.Dispose();
+            _model.PropertyChanged -= OnModelPropertyChanged;
             NetworkChange.NetworkAddressChanged -= OnAddressChanged;
         };
+    }
+
+    private void SubscribeToWifiNotifications()
+    {
+        if (_notifications != null) return;
+        try
+        {
+            _notifications = _wifi.Watch(notification => Dispatcher.BeginInvoke(() => OnNotification(notification)));
+            _model.NotificationsError = null;
+        }
+        catch (InvalidOperationException e)
+        {
+            // Без уведомлений окно обновляется по таймеру и по «Обновить»
+            _model.NotificationsError = e.Message;
+        }
+    }
+
+    private void OnRefreshClick(object sender, RoutedEventArgs e) => SubscribeToWifiNotifications();
+
+    private void OnModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.LocationAccessDenied) && !_model.LocationAccessDenied)
+            SubscribeToWifiNotifications();
     }
 
     private bool Shown => IsVisible && WindowState != WindowState.Minimized;
@@ -168,7 +188,7 @@ internal partial class MainWindow : Window
     // Список профилей собирается при нажатии: профили могли измениться
     private void OnApplyProfileClick(object sender, RoutedEventArgs e)
     {
-        if (_model.SelectedWifiAdapter is not { } adapter) return;
+        if (!_model.CanApplyProfile || _model.SelectedWifiAdapter is not { } adapter) return;
         var button = (Button)sender;
         var menu = new ContextMenu { PlacementTarget = button, Placement = PlacementMode.Bottom };
         foreach (Profile profile in _model.ProfileChoices)
@@ -177,7 +197,7 @@ internal partial class MainWindow : Window
             {
                 Header = profile.Name,
                 Command = _model.ApplyProfileCommand,
-                CommandParameter = new ApplyProfileRequest(profile, adapter.Id),
+                CommandParameter = new ApplyProfileRequest(profile.Id, adapter.Id),
             });
         }
         menu.IsOpen = true;

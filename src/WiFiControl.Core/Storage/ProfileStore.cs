@@ -14,6 +14,8 @@ public sealed class ProfileStore
     public const string FileName = "WiFiControl.json";
 
     private const int FormatVersion = 1;
+    private const int SharingViolation = unchecked((int)0x80070020);
+    private const int LockViolation = unchecked((int)0x80070021);
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -48,15 +50,27 @@ public sealed class ProfileStore
         Profiles = new ProfileSet();
         LoadError = null;
         _loaded = true;
-        if (!File.Exists(FilePath)) return;
-
         try
         {
+            if (Directory.Exists(FilePath))
+                throw new FormatException("По этому пути находится папка.");
+
             Profiles = Read(File.ReadAllText(FilePath, Encoding.UTF8));
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // Отсутствующий файл — начальное состояние.
         }
         catch (Exception ex) when (ex is FormatException or IOException or UnauthorizedAccessException)
         {
-            LoadError = "Не удалось прочитать " + FilePath + ". " + ex.Message;
+            string reason = ex switch
+            {
+                UnauthorizedAccessException => "Нет доступа к файлу. " + ex.Message,
+                IOException { HResult: SharingViolation or LockViolation } => "Файл занят другим процессом.",
+                IOException => "Ошибка чтения файла. " + ex.Message,
+                _ => ex.Message,
+            };
+            LoadError = "Не удалось прочитать " + FilePath + ". " + reason;
         }
     }
 

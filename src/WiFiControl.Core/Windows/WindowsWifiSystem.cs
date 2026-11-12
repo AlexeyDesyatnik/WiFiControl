@@ -11,6 +11,7 @@ namespace WiFiControl.Core.Windows;
 /// </summary>
 public sealed class WindowsWifiSystem : IWifiSystem
 {
+    private const int ErrorAccessDenied = 5;
     private const int ErrorInvalidState = 5023;
     private static readonly TimeSpan ScanTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(5);
@@ -56,7 +57,7 @@ public sealed class WindowsWifiSystem : IWifiSystem
                 .Select(network => new VisibleNetwork(network.Ssid.ToBytes(), network.SignalQuality,
                     WifiSecurityMap.From(network.AuthenticationAlgorithm, network.IsSecurityEnabled), network.ProfileName ?? ""))
                 .ToList();
-        }, cancellationToken);
+        }, cancellationToken, requiresLocation: true);
     }
 
     public Task<byte[]?> ReadCurrentNetworkAsync(Guid adapter, CancellationToken cancellationToken)
@@ -77,7 +78,7 @@ public sealed class WindowsWifiSystem : IWifiSystem
             if (value.result != ActionResult.Success)
                 throw new InvalidOperationException("ManagedNativeWifi не разобрал текущее подключение (" + value.result + ").");
             return value.connection.Ssid.ToBytes();
-        }, cancellationToken);
+        }, cancellationToken, requiresLocation: true);
     }
 
     public Task<IReadOnlyList<WindowsProfile>> ReadWindowsProfilesAsync(Guid adapter, CancellationToken cancellationToken)
@@ -177,7 +178,7 @@ public sealed class WindowsWifiSystem : IWifiSystem
             // Библиотека ждёт уведомления о конце сканирования, удачного или нет
             await NativeWifi.ScanNetworksAsync(ScanMode.OnlySpecified, [adapter], ScanTimeout, cancellationToken).ConfigureAwait(false);
         }
-        catch (Win32Exception e)
+        catch (Exception e) when (e is Win32Exception or UnauthorizedAccessException)
         {
             throw new InvalidOperationException("Windows не запустила поиск сетей: " + e.Message, e);
         }
@@ -227,13 +228,18 @@ public sealed class WindowsWifiSystem : IWifiSystem
     }
 
     // WLAN API отвечает синхронно, поэтому вызов уходит с вызывающего потока
-    private static Task<T> RunAsync<T>(string what, Func<T> read, CancellationToken cancellationToken)
+    private static Task<T> RunAsync<T>(string what, Func<T> read, CancellationToken cancellationToken, bool requiresLocation = false)
     {
         return Task.Run(() =>
         {
             try
             {
                 return read();
+            }
+            // ManagedNativeWifi преобразует код 5 в UnauthorizedAccessException.
+            catch (Exception e) when (requiresLocation && e is (UnauthorizedAccessException or Win32Exception { NativeErrorCode: ErrorAccessDenied }))
+            {
+                throw new WifiLocationAccessDeniedException(e);
             }
             catch (Exception e) when (e is Win32Exception or UnauthorizedAccessException)
             {

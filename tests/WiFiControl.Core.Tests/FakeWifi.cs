@@ -34,6 +34,7 @@ internal sealed class FakeWifi : IWifiSystem
     public Exception? ConnectFailure { get; set; }
 
     public Exception? CurrentFailure { get; set; }
+    public Exception? VisibleNetworksFailure { get; set; }
 
     public Exception? WindowsProfilesFailure { get; set; }
 
@@ -54,6 +55,7 @@ internal sealed class FakeWifi : IWifiSystem
     public async Task<IReadOnlyList<VisibleNetwork>> ReadVisibleNetworksAsync(Guid adapter, CancellationToken cancellationToken)
     {
         await Task.Yield();
+        if (VisibleNetworksFailure != null) throw VisibleNetworksFailure;
         return [.. Networks];
     }
 

@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -17,6 +19,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     private const string Missing = "—";
 
     private CurrentState? _state;
+    private ProfileSet? _displayedProfiles;
     private Guid? _preferredWifiAdapter = stateStore.Load();
     private Guid? _displayedWifiPreference;
     private bool _stateReadFailed;
@@ -54,10 +57,11 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
     /// <summary>Идёт запись настроек: остальные действия недоступны, прервать нельзя.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanApplyProfile), nameof(CanSwitch))]
-    [NotifyCanExecuteChangedFor(nameof(RefreshCommand), nameof(ApplyProfileCommand), nameof(ApplyExpectedCommand), nameof(CloseStepsCommand),
-        nameof(ConnectCommand))]
+    [NotifyPropertyChangedFor(nameof(CanEditProfiles))]
+    [NotifyCanExecuteChangedFor(nameof(RefreshCommand), nameof(CloseStepsCommand), nameof(ReloadProfilesCommand))]
     private bool _isBusy;
+
+    partial void OnIsBusyChanged(bool value) => NotifyNetworkActions();
 
     /// <summary>Заголовок хода применения; null, если хода не видно.</summary>
     [ObservableProperty]
@@ -88,26 +92,64 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     /// <summary>Ход последнего применения по шагам.</summary>
     public ObservableCollection<StepViewModel> Steps { get; } = [];
 
+    public bool LocationAccessDenied => _state?.LocationAccessDenied == true;
+
+    public string? ProfileLoadError => store.LoadError;
+
+    private ProfileSet? ReadableProfiles => ProfileLoadError == null ? store.Profiles : null;
+
+    public bool CanEditProfiles => !IsBusy && ReadableProfiles != null;
+
+    /// <summary>Для действий с профилем сети список должен соответствовать прочитанному файлу профилей.</summary>
+    public bool CanUseNetworkProfiles => CanUseWifi && CanEditProfiles && ReferenceEquals(_displayedProfiles, ReadableProfiles);
+
     /// <summary>Применить профиль можно: адаптер подключён к известной сети, профили прочитаны, применение не идёт.</summary>
     public bool CanApplyProfile => CanSwitch && _state?.Network != null;
 
     /// <summary>Переключаться можно: адаптер известен, профили прочитаны, ничего не идёт.</summary>
-    public bool CanSwitch => CanUseWifi && _state?.Adapter != null && store.LoadError == null;
+    public bool CanSwitch => CanUseNetworkProfiles && _state?.Adapter != null;
 
-    private bool CanUseWifi => !IsBusy && !_stateReadFailed && _displayedWifiPreference == _preferredWifiAdapter
-        && _state is { WifiAdapter: { IsRadioOn: not false }, NetworkReadError: null };
+    public bool CanUseWifi => !IsBusy && !_stateReadFailed && _displayedWifiPreference == _preferredWifiAdapter
+        && _state is { WifiAdapter: { IsRadioOn: not false }, NetworkReadError: null, LocationAccessDenied: false };
 
     /// <summary>Профили для «Применить профиль…»: «Автоматически» первым.</summary>
-    public IReadOnlyList<Profile> ProfileChoices => store.LoadError == null ? [Profile.Automatic, .. store.Profiles.Profiles] : [];
+    public IReadOnlyList<Profile> ProfileChoices => CanApplyProfile ? [Profile.Automatic, .. store.Profiles.Profiles] : [];
 
     /// <summary>Подписка на уведомления Wi-Fi не удалась: окно обновляется только по таймеру и «Обновить».</summary>
     public string? NotificationsError
     {
-        set
+        set => _notificationsError = value;
+    }
+
+    [RelayCommand]
+    private void OpenLocationSettings() =>
+        OpenInShell("ms-settings:privacy-location", "Не удалось открыть параметры местоположения");
+
+    [RelayCommand]
+    private void OpenProfilesFolder() =>
+        OpenInShell(Path.GetDirectoryName(store.FilePath)!, "Не удалось открыть папку файла профилей");
+
+    private void OpenInShell(string target, string failure)
+    {
+        try
         {
-            _notificationsError = value;
-            Error = value;
+            using Process? process = Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
         }
+        catch (Exception e) when (e is Win32Exception or InvalidOperationException)
+        {
+            Error = failure + ": " + e.Message;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(IsIdle))]
+    private async Task ReloadProfilesAsync()
+    {
+        if (IsBusy) return;
+        store.Load();
+        OnPropertyChanged(nameof(ProfileLoadError));
+        OnPropertyChanged(nameof(CanEditProfiles));
+        NotifyNetworkActions();
+        await LoadAsync();
     }
 
     /// <summary>«Обновить»: поиск сетей, затем чтение.</summary>
@@ -171,17 +213,21 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
             {
                 _loadAgain = false;
                 Guid? preference = _preferredWifiAdapter;
+                ProfileSet? profiles = ReadableProfiles;
                 try
                 {
-                    CurrentState state = await CurrentState.ReadAsync(network, wifi, store.LoadError == null ? store.Profiles : null,
+                    CurrentState state = await CurrentState.ReadAsync(network, wifi, profiles,
                         applier.Last, CancellationToken.None, preference);
                     if (IsBusy) return;
-                    if (preference != _preferredWifiAdapter) continue;
+                    if (preference != _preferredWifiAdapter || !ReferenceEquals(profiles, ReadableProfiles)) continue;
                     _displayedWifiPreference = preference;
+                    _displayedProfiles = profiles;
                     _stateReadFailed = false;
+                    if (state.LocationAccessDenied) _scanError = null;
                     Show(state);
                     Error = _adapterSaveError ?? _autoConnectError ?? state.NetworkReadError ?? state.WindowsProfilesReadError
-                        ?? (state.WifiAdapter is { IsRadioOn: not false } ? _scanError : null) ?? _notificationsError;
+                        ?? (state.LocationAccessDenied ? null :
+                            (state.WifiAdapter is { IsRadioOn: not false } ? _scanError : null) ?? _notificationsError);
                 }
                 catch (InvalidOperationException e)
                 {
@@ -222,7 +268,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     /// <summary>«Применить профиль…» для текущей сети: привязку не меняет.</summary>
     [RelayCommand(CanExecute = nameof(CanApplyChosenProfile))]
     private Task ApplyProfileAsync(ApplyProfileRequest request) =>
-        CanApplyChosenProfile(request) ? ApplyAsync(request.Profile) : Task.CompletedTask;
+        FindApplicableProfile(request) is { } profile ? ApplyAsync(profile) : Task.CompletedTask;
 
     /// <summary>«Применить» у расхождения: ожидаемый профиль заново.</summary>
     [RelayCommand(CanExecute = nameof(CanApply))]
@@ -283,8 +329,12 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
     private bool CanApply() => CanApplyProfile;
 
-    private bool CanApplyChosenProfile(ApplyProfileRequest? request) =>
-        CanApplyProfile && request != null && request.AdapterId == SelectedWifiAdapter?.Id;
+    private bool CanApplyChosenProfile(ApplyProfileRequest? request) => FindApplicableProfile(request) != null;
+
+    private Profile? FindApplicableProfile(ApplyProfileRequest? request) =>
+        CanApplyProfile && request != null && request.AdapterId == SelectedWifiAdapter?.Id
+            ? store.Profiles.Find(request.ProfileId)
+            : null;
 
     /// <summary>Подключиться можно к знакомой сети, кроме текущей, когда её профиль известен и ничего не идёт.</summary>
     private bool CanConnect(NetworkRowViewModel? row) => CanSwitch && row is { CanConnect: true } && row.Row.Profile != null;
@@ -329,6 +379,8 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
     private void NotifyNetworkActions()
     {
+        OnPropertyChanged(nameof(CanUseWifi));
+        OnPropertyChanged(nameof(CanUseNetworkProfiles));
         OnPropertyChanged(nameof(CanApplyProfile));
         OnPropertyChanged(nameof(CanSwitch));
         ApplyProfileCommand.NotifyCanExecuteChanged();
@@ -340,7 +392,9 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     {
         bool activeAdapterChanged = SelectedWifiAdapter?.Id != state.WifiAdapter?.Id;
         bool hadAdapterChoice = HasAdapterChoice;
+        bool locationAccessChanged = LocationAccessDenied != state.LocationAccessDenied;
         _state = state;
+        if (locationAccessChanged) OnPropertyChanged(nameof(LocationAccessDenied));
         if (activeAdapterChanged) PasswordRejected = null;
         if (hadAdapterChoice != HasAdapterChoice) OnPropertyChanged(nameof(HasAdapterChoice));
         NotifyNetworkActions();
@@ -349,6 +403,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         {
             null => "Wi-Fi-адаптер не найден",
             { IsRadioOn: false } => "Wi-Fi выключен",
+            _ when state.LocationAccessDenied => "Сеть неизвестна",
             _ => state.Network ?? "Не подключено",
         };
         NetworkProfile = state.Network == null ? ""
@@ -390,7 +445,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
 
 internal sealed record NewNetwork(string Name, NewNetworkSecurity Security, bool Hidden = false, bool AutoConnect = true);
 
-internal sealed record ApplyProfileRequest(Profile Profile, Guid AdapterId);
+internal sealed record ApplyProfileRequest(Guid ProfileId, Guid AdapterId);
 
 internal sealed record PasswordRetry(string Network, string WindowsProfileName, NewNetwork? NewNetwork = null);
 

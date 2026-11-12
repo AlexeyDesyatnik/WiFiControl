@@ -93,6 +93,35 @@ public class CurrentStateTests
         Assert.Equal(_wifi.CurrentFailure.Message, state.NetworkReadError);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Location_access_denied_hides_network_information_but_keeps_ipv4_and_proxy(bool currentReadDenied)
+    {
+        _wifi.Current = Encoding.UTF8.GetBytes("Office");
+        _wifi.Networks.Add(FakeWifi.Entry("Office", 80));
+        if (currentReadDenied) _wifi.CurrentFailure = new WifiLocationAccessDeniedException();
+        else _wifi.VisibleNetworksFailure = new WifiLocationAccessDeniedException();
+
+        Adapter adapter = Assert.Single(_system.Adapters);
+        adapter.Active.Addresses.Add("10.68.12.37/24");
+        adapter.Active.Gateways.Add("10.68.12.1");
+        adapter.Active.Dns.Add("10.68.0.2");
+        _system.SystemProxy = new SystemProxyState { Settings = ProxySettings.FromRaw(true, "proxy:3128", "") };
+
+        CurrentState state = await ReadAsync();
+
+        Assert.True(state.LocationAccessDenied);
+        Assert.Null(state.Network);
+        Assert.Null(state.Profile);
+        Assert.Null(state.Mismatch);
+        Assert.Empty(state.Networks);
+        Assert.Equal(["10.68.12.37/24"], state.Adapter?.Active.Addresses);
+        Assert.Equal(["10.68.12.1"], state.Adapter?.Active.Gateways);
+        Assert.Equal(["10.68.0.2"], state.Adapter?.Active.Dns);
+        Assert.Equal("proxy:3128", state.Proxy.SystemProxy.Settings.Server);
+    }
+
     [Fact]
     public async Task Network_seen_by_several_access_points_is_one_row_with_the_strongest_signal()
     {

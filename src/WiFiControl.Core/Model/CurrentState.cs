@@ -34,7 +34,7 @@ public sealed class CurrentState
     /// <summary>Тот же адаптер со своими настройками IPv4; null, если его нет среди сетевых адаптеров.</summary>
     public Adapter? Adapter { get; private init; }
 
-    /// <summary>Ключ текущей сети; null, если адаптер не подключён.</summary>
+    /// <summary>Ключ текущей сети; null, если адаптер не подключён или имя не прочитано.</summary>
     public string? Network { get; private init; }
 
     /// <summary>Профиль для текущей сети; null, если сети нет или профили неизвестны.</summary>
@@ -69,6 +69,9 @@ public sealed class CurrentState
     /// <summary>Причина, по которой не удалось прочитать текущую сеть или список сетей.</summary>
     public string? NetworkReadError { get; private init; }
 
+    /// <summary>Windows закрыла доступ к сведениям о сетях из-за настроек местоположения.</summary>
+    public bool LocationAccessDenied { get; private init; }
+
     /// <summary>Сохранённый адаптер, если он доступен, иначе первый из доступных.</summary>
     public static WifiAdapter? SelectWifiAdapter(IReadOnlyList<WifiAdapter> adapters, Guid? preferredWifiAdapter) =>
         adapters.FirstOrDefault(adapter => adapter.Id == preferredWifiAdapter) ?? adapters.FirstOrDefault();
@@ -91,12 +94,18 @@ public sealed class CurrentState
         byte[]? current = null;
         IReadOnlyList<VisibleNetwork> entries = [];
         string? networkReadError = null;
+        bool locationAccessDenied = false;
         if (wifiAdapter.IsRadioOn != false)
         {
             try
             {
                 current = await wifi.ReadCurrentNetworkAsync(wifiAdapter.Id, cancellationToken).ConfigureAwait(false);
                 entries = await wifi.ReadVisibleNetworksAsync(wifiAdapter.Id, cancellationToken).ConfigureAwait(false);
+            }
+            catch (WifiLocationAccessDeniedException)
+            {
+                current = null;
+                locationAccessDenied = true;
             }
             catch (InvalidOperationException e)
             {
@@ -136,6 +145,7 @@ public sealed class CurrentState
             Networks = BuildList(entries, currentKey, profiles, windowsProfiles),
             WindowsProfilesReadError = windowsProfilesReadError,
             NetworkReadError = networkReadError,
+            LocationAccessDenied = locationAccessDenied,
         };
     }
 

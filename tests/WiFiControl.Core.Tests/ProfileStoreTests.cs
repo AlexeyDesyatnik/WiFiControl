@@ -97,6 +97,25 @@ public sealed class ProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public void Directory_in_place_of_profiles_is_a_read_error_and_reload_recovers_after_repair()
+    {
+        Directory.CreateDirectory(FilePath);
+
+        var store = Loaded();
+
+        Assert.NotNull(store.LoadError);
+        Assert.Contains("папка", store.LoadError);
+        Assert.Throws<InvalidOperationException>(store.Save);
+
+        Directory.Delete(FilePath);
+        File.WriteAllText(FilePath, """{"version":1}""");
+        store.Load();
+
+        Assert.Null(store.LoadError);
+        Assert.Equal(Profile.AutomaticId, store.Profiles.DefaultProfileId);
+    }
+
+    [Fact]
     public void Store_creates_its_folder_on_first_save()
     {
         string folder = Path.Combine(_folder, "WiFiControl");

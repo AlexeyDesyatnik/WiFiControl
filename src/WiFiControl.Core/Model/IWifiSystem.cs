@@ -56,6 +56,10 @@ public interface IWifiSystem
     IDisposable Watch(Action<WifiNotification> onNotification);
 }
 
+/// <summary>Windows не дала прочитать сведения о сетях без доступа к местоположению (ADR 0002).</summary>
+public sealed class WifiLocationAccessDeniedException(Exception? cause = null)
+    : InvalidOperationException("Windows не разрешила доступ к местоположению.", cause);
+
 /// <summary>Wi-Fi-адаптер, как его видит WLAN API. <see cref="Id"/> совпадает с GUID адаптера в <see cref="Adapter.Id"/>.</summary>
 public sealed record WifiAdapter(Guid Id, string Description)
 {
