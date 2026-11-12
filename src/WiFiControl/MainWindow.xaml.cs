@@ -92,6 +92,15 @@ internal partial class MainWindow : Window
         await ConnectNewAsync(new NewNetwork(row.Row.Network, security));
     }
 
+    private async void OnAutoConnectClick(object sender, RoutedEventArgs e)
+    {
+        var checkBox = (CheckBox)sender;
+        var row = (NetworkRowViewModel)checkBox.DataContext;
+        await _model.SetAutoConnectAsync(row, autoConnect: checkBox.IsChecked != true);
+        // Если строка ещё на экране, возвращаем значение из последнего снимка
+        checkBox.GetBindingExpression(ToggleButton.IsCheckedProperty)?.UpdateTarget();
+    }
+
     private async void OnConnectHiddenClick(object sender, RoutedEventArgs e) =>
         await ConnectNewAsync(new NewNetwork("", NewNetworkSecurity.Wpa2Personal, Hidden: true));
 

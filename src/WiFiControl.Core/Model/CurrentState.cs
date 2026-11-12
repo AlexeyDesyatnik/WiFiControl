@@ -5,8 +5,9 @@ namespace WiFiControl.Core.Model;
 /// <param name="WindowsProfileName">Профиль сети Windows самой сильной записи; пусто, если его нет.</param>
 /// <param name="Profile">Профиль для сети; null, если профили неизвестны (файл профилей не прочитан).</param>
 /// <param name="IsBound">Сеть привязана к профилю, а не получает профиль по умолчанию.</param>
+/// <param name="AutoConnect">Режим автоподключения из профиля сети Windows; null, если профиль не найден.</param>
 public sealed record NetworkRow(string Network, int Signal, WifiSecurity Security, string WindowsProfileName, bool IsCurrent,
-    Profile? Profile, bool IsBound);
+    Profile? Profile, bool IsBound, bool? AutoConnect = null);
 
 /// <summary>Признак проблемы в блоке «Сейчас».</summary>
 public enum Problem
@@ -59,6 +60,9 @@ public sealed class CurrentState
     /// <summary>Видимые сети: текущая первой, остальные по убыванию сигнала.</summary>
     public IReadOnlyList<NetworkRow> Networks { get; private init; } = [];
 
+    /// <summary>Причина, по которой не удалось прочитать режимы автоподключения для списка сетей.</summary>
+    public string? WindowsProfilesReadError { get; private init; }
+
     /// <param name="profiles">Профили и привязки; null, если файл профилей не прочитан.</param>
     /// <param name="last">Последнее применение; null, если его не было.</param>
     public static async Task<CurrentState> ReadAsync(INetworkSystem network, IWifiSystem wifi, ProfileSet? profiles, LastApplication? last,
@@ -76,6 +80,19 @@ public sealed class CurrentState
         Adapter? internetAdapter = internetId == null ? null : adapters.FirstOrDefault(candidate => IsAdapter(candidate, internetId.Value));
         byte[]? current = await wifi.ReadCurrentNetworkAsync(wifiAdapter.Id, cancellationToken).ConfigureAwait(false);
         IReadOnlyList<VisibleNetwork> entries = await wifi.ReadVisibleNetworksAsync(wifiAdapter.Id, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<WindowsProfile> windowsProfiles = [];
+        string? windowsProfilesReadError = null;
+        if (entries.Any(entry => entry.WindowsProfileName.Length > 0))
+        {
+            try
+            {
+                windowsProfiles = await wifi.ReadWindowsProfilesAsync(wifiAdapter.Id, cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException e)
+            {
+                windowsProfilesReadError = e.Message;
+            }
+        }
 
         string? currentKey = current == null ? null : NetworkKey.FromBytes(current);
         Profile? expected = currentKey == null || profiles == null ? null : Model.Mismatch.ExpectedProfile(last, currentKey, profiles);
@@ -91,7 +108,8 @@ public sealed class CurrentState
             Problems = FindProblems(currentKey == null ? null : adapter, routes, internetAdapter),
             ExpectedProfile = expected,
             Mismatch = expected == null || adapter == null ? null : FindMismatch(expected, adapter, proxy),
-            Networks = BuildList(entries, currentKey, profiles),
+            Networks = BuildList(entries, currentKey, profiles, windowsProfiles),
+            WindowsProfilesReadError = windowsProfilesReadError,
         };
     }
 
@@ -124,8 +142,10 @@ public sealed class CurrentState
         return problems;
     }
 
-    private static List<NetworkRow> BuildList(IReadOnlyList<VisibleNetwork> entries, string? current, ProfileSet? profiles)
+    private static List<NetworkRow> BuildList(IReadOnlyList<VisibleNetwork> entries, string? current, ProfileSet? profiles,
+        IReadOnlyList<WindowsProfile> windowsProfiles)
     {
+        var byName = windowsProfiles.ToDictionary(profile => profile.Name, StringComparer.Ordinal);
         return entries
             // Скрытые сети без профиля сети Windows: для них в окне есть строка «Скрытая сеть…»
             .Where(entry => entry.Ssid.Length > 0)
@@ -139,7 +159,8 @@ public sealed class CurrentState
                     .First();
                 return new NetworkRow(group.Key, strongest.Signal, strongest.Security, strongest.WindowsProfileName,
                     NetworkKey.Comparer.Equals(group.Key, current),
-                    profiles?.ProfileFor(group.Key), profiles?.Bindings.ContainsKey(group.Key) ?? false);
+                    profiles?.ProfileFor(group.Key), profiles?.Bindings.ContainsKey(group.Key) ?? false,
+                    byName.GetValueOrDefault(strongest.WindowsProfileName)?.AutoConnect);
             })
             .OrderByDescending(row => row.IsCurrent)
             .ThenByDescending(row => row.Signal)

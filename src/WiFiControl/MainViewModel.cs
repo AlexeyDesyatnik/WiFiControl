@@ -20,6 +20,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     // Отказы, которые удачное чтение не отменяет: их видно, пока причина не уйдёт
     private string? _scanError;
     private string? _notificationsError;
+    private string? _autoConnectError;
 
     [ObservableProperty]
     private string _adapterName = "";
@@ -45,7 +46,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     [ObservableProperty]
     private string _proxy = Missing;
 
-    /// <summary>Идёт применение или переключение: остальные действия недоступны, прервать нельзя.</summary>
+    /// <summary>Идёт запись настроек: остальные действия недоступны, прервать нельзя.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanApplyProfile), nameof(CanSwitch))]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand), nameof(ApplyProfileCommand), nameof(ApplyExpectedCommand), nameof(CloseStepsCommand),
@@ -98,6 +99,7 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
     [RelayCommand(CanExecute = nameof(IsIdle))]
     public async Task RefreshAsync()
     {
+        _autoConnectError = null;
         try
         {
             IReadOnlyList<WifiAdapter> adapters = await wifi.ReadAdaptersAsync(CancellationToken.None);
@@ -131,8 +133,11 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
                 _loadAgain = false;
                 try
                 {
-                    Show(await CurrentState.ReadAsync(network, wifi, store.LoadError == null ? store.Profiles : null, applier.Last, CancellationToken.None));
-                    Error = _scanError ?? _notificationsError;
+                    CurrentState state = await CurrentState.ReadAsync(network, wifi, store.LoadError == null ? store.Profiles : null,
+                        applier.Last, CancellationToken.None);
+                    if (IsBusy) return;
+                    Show(state);
+                    Error = _autoConnectError ?? state.WindowsProfilesReadError ?? _scanError ?? _notificationsError;
                 }
                 catch (InvalidOperationException e)
                 {
@@ -144,6 +149,27 @@ internal sealed partial class MainViewModel(INetworkSystem network, IWifiSystem 
         {
             _loading = false;
         }
+    }
+
+    public async Task SetAutoConnectAsync(NetworkRowViewModel row, bool autoConnect)
+    {
+        if (IsBusy || !row.HasAutoConnectSetting || _state?.WifiAdapter is not { } adapter) return;
+
+        IsBusy = true;
+        _autoConnectError = null;
+        try
+        {
+            await wifi.SetAutoConnectAsync(adapter.Id, row.Row.WindowsProfileName, autoConnect, CancellationToken.None);
+        }
+        catch (InvalidOperationException e)
+        {
+            Error = _autoConnectError = e.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+        await LoadAsync();
     }
 
     /// <summary>«Применить профиль…» для текущей сети: привязку не меняет.</summary>
@@ -364,6 +390,10 @@ internal sealed class NetworkRowViewModel(NetworkRow row)
     public NetworkRow Row => row;
 
     public string Name => row.Network;
+
+    public bool HasAutoConnectSetting => row.AutoConnect.HasValue;
+
+    public bool DoNotAutoConnect => row.AutoConnect == false;
 
     /// <summary>У сети есть профиль сети Windows, и она не текущая: к ней можно подключиться.</summary>
     public bool CanConnect => !row.IsCurrent && row.WindowsProfileName.Length > 0;

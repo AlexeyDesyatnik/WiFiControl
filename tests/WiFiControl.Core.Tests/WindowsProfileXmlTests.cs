@@ -153,6 +153,21 @@ public class WindowsProfileXmlTests
         Assert.Equal(Key, Value(Security(root)!, "sharedKey", "keyMaterial"));
     }
 
+    [Theory]
+    [InlineData("ESS", null, true)]
+    [InlineData("ESS", "auto", true)]
+    [InlineData("ESS", "manual", false)]
+    [InlineData("IBSS", null, false)]
+    public void Auto_connect_is_read_from_the_windows_profile_with_the_default_for_its_connection_type(
+        string connectionType, string? connectionMode, bool expected)
+    {
+        XElement profile = Parse(WindowsProfileXml.Build("Office", NewNetworkSecurity.Open, "", autoConnect: true));
+        profile.SetElementValue(V1 + "connectionType", connectionType);
+        profile.SetElementValue(V1 + "connectionMode", connectionMode);
+
+        Assert.Equal(expected, WindowsProfileXml.ReadAutoConnect(profile.ToString()));
+    }
+
     [Fact]
     public void Sae_profile_cannot_get_a_key_as_its_new_password()
     {

@@ -227,6 +227,20 @@
                 </ListBoxItem>
                 <DataTemplate DataType="local:NetworkRowViewModel">
                     <DockPanel Margin="0,2">
+                        <CheckBox DockPanel.Dock="Bottom" Content="Не подключаться автоматически"
+                                  Margin="26,2,0,0" FontSize="12" HorizontalAlignment="Left"
+                                  Visibility="{Binding HasAutoConnectSetting, Converter={StaticResource Visible}}"
+                                  IsChecked="{Binding DoNotAutoConnect, Mode=OneWay}" Click="OnAutoConnectClick">
+                            <CheckBox.Style>
+                                <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding DataContext.IsBusy, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                            <Setter Property="IsEnabled" Value="False" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </CheckBox.Style>
+                        </CheckBox>
                         <local:SignalBars DockPanel.Dock="Left" Signal="{Binding Signal}" Margin="0,0,10,0" />
                         <TextBlock DockPanel.Dock="Right" FontFamily="{StaticResource Icons}" FontSize="12" Margin="8,0,0,0"
                                    VerticalAlignment="Center" ToolTip="{Binding Security}"

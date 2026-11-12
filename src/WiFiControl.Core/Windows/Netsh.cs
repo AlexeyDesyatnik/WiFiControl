@@ -86,19 +86,28 @@ internal static class Netsh
     }
 
     /// <summary>Выполняет команду скрытым процессом и возвращает описание сбоя; null, если netsh завершился успешно.</summary>
-    public static async Task<string?> RunAsync(string arguments, CancellationToken cancellationToken)
+    public static Task<string?> RunAsync(string arguments, CancellationToken cancellationToken) =>
+        RunAsync(new ProcessStartInfo { Arguments = arguments }, cancellationToken);
+
+    /// <summary>Выполняет команду, передавая каждый аргумент отдельно.</summary>
+    public static Task<string?> RunAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    {
+        var start = new ProcessStartInfo();
+        foreach (string argument in arguments) start.ArgumentList.Add(argument);
+        return RunAsync(start, cancellationToken);
+    }
+
+    private static async Task<string?> RunAsync(ProcessStartInfo start, CancellationToken cancellationToken)
     {
         // netsh пишет в кодировке консоли, а не в ANSI
         Encoding encoding = ConsoleEncoding();
-        var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "netsh.exe"), arguments)
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = encoding,
-            StandardErrorEncoding = encoding
-        };
+        start.FileName = Path.Combine(Environment.SystemDirectory, "netsh.exe");
+        start.UseShellExecute = false;
+        start.CreateNoWindow = true;
+        start.RedirectStandardOutput = true;
+        start.RedirectStandardError = true;
+        start.StandardOutputEncoding = encoding;
+        start.StandardErrorEncoding = encoding;
 
         Process process;
         try

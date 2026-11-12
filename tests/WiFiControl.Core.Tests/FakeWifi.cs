@@ -35,6 +35,8 @@ internal sealed class FakeWifi : IWifiSystem
 
     public Exception? CurrentFailure { get; set; }
 
+    public Exception? WindowsProfilesFailure { get; set; }
+
     /// <summary>Уведомления, которые приходят во время подключения перед его исходом.</summary>
     public List<WifiNotification> DuringConnect { get; } = [];
 
@@ -65,7 +67,15 @@ internal sealed class FakeWifi : IWifiSystem
     public async Task<IReadOnlyList<WindowsProfile>> ReadWindowsProfilesAsync(Guid adapter, CancellationToken cancellationToken)
     {
         await Task.Yield();
+        if (WindowsProfilesFailure != null) throw WindowsProfilesFailure;
         return [.. WindowsProfiles];
+    }
+
+    public async Task SetAutoConnectAsync(Guid adapter, string name, bool autoConnect, CancellationToken cancellationToken)
+    {
+        XElement profile = XElement.Parse(await ReadWindowsProfileXmlAsync(adapter, name, cancellationToken));
+        profile.SetElementValue(profile.Name.Namespace + "connectionMode", autoConnect ? "auto" : "manual");
+        Store(name, profile.ToString());
     }
 
     public async Task<string> ReadWindowsProfileXmlAsync(Guid adapter, string name, CancellationToken cancellationToken)
@@ -103,7 +113,7 @@ internal sealed class FakeWifi : IWifiSystem
         XNamespace v1 = root.Name.Namespace;
         string hex = root.Element(v1 + "SSIDConfig")!.Element(v1 + "SSID")!.Element(v1 + "hex")!.Value;
         WindowsProfiles.RemoveAll(profile => profile.Name == name);
-        WindowsProfiles.Add(new WindowsProfile(name, NetworkKey.FromBytes(Convert.FromHexString(hex))));
+        WindowsProfiles.Add(new WindowsProfile(name, NetworkKey.FromBytes(Convert.FromHexString(hex)), WindowsProfileXml.ReadAutoConnect(xml)));
         Xml[name] = xml;
     }
 

@@ -1,13 +1,13 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.Net.NetworkInformation;
 using ManagedNativeWifi;
 using WiFiControl.Core.Model;
 
 namespace WiFiControl.Core.Windows;
 
 /// <summary>
-/// Настоящий Wi-Fi: перечисление, сканирование и профили сетей Windows — через ManagedNativeWifi,
-/// уведомления — собственным P/Invoke (docs/adr/0001).
+/// Настоящий Wi-Fi: ManagedNativeWifi, уведомления через P/Invoke и запись режима автоподключения через netsh (ADR 0001).
 /// </summary>
 public sealed class WindowsWifiSystem : IWifiSystem
 {
@@ -70,16 +70,51 @@ public sealed class WindowsWifiSystem : IWifiSystem
     {
         return RunAsync("профили сетей Windows", () => (IReadOnlyList<WindowsProfile>)NativeWifi.EnumerateProfiles()
             .Where(profile => profile.InterfaceInfo.Id == adapter)
-            .Select(profile => new WindowsProfile(profile.Name, NetworkKey.FromBytes(profile.Document.Ssid.ToBytes())))
+            .Select(profile => new WindowsProfile(profile.Name, NetworkKey.FromBytes(profile.Document.Ssid.ToBytes()),
+                WindowsProfileXml.ReadAutoConnect(profile.Document.Xml)))
             .ToList(), cancellationToken);
     }
 
     public Task<string> ReadWindowsProfileXmlAsync(Guid adapter, string name, CancellationToken cancellationToken)
     {
-        return RunAsync("профиль сети Windows «" + name + "»", () => NativeWifi.EnumerateProfiles()
-            .FirstOrDefault(profile => profile.InterfaceInfo.Id == adapter && profile.Name == name)?.Document.Xml
-            ?? throw new InvalidOperationException("Профиля сети Windows «" + name + "» больше нет."), cancellationToken);
+        return RunAsync("профиль сети Windows «" + name + "»", () => ReadProfile(adapter, name).Document.Xml, cancellationToken);
     }
+
+    public async Task SetAutoConnectAsync(Guid adapter, string name, bool autoConnect, CancellationToken cancellationToken)
+    {
+        string failureMessage = "Windows не изменила режим автоподключения для профиля сети Windows «" + name + "».";
+        string? failure;
+        try
+        {
+            ProfilePack profile = await RunAsync("профиль сети Windows «" + name + "»",
+                () => ReadProfile(adapter, name), cancellationToken).ConfigureAwait(false);
+            if (WindowsProfileXml.ReadAutoConnect(profile.Document.Xml) == autoConnect) return;
+            if (profile.ProfileType == ProfileType.GroupPolicy)
+                throw new InvalidOperationException("Режим автоподключения задан групповой политикой Windows.");
+
+            string adapterName = NetworkInterface.GetAllNetworkInterfaces()
+                .FirstOrDefault(candidate => Guid.TryParse(candidate.Id, out Guid id) && id == adapter)?.Name
+                ?? throw new InvalidOperationException("Wi-Fi-адаптер не найден.");
+            // Меняем параметр профиля: WlanSetProfile при полной перезаписи сбрасывает пользовательские данные.
+            List<string> command = ["wlan", "set", "profileparameter", "name=" + name, "interface=" + adapterName,
+                "ConnectionMode=" + (autoConnect ? "auto" : "manual")];
+            if (!autoConnect) command.Add("autoSwitch=no");
+            failure = await Netsh.RunAsync(command, cancellationToken).ConfigureAwait(false);
+
+            // netsh может сообщить об ошибке с нулевым кодом выхода, поэтому проверяем записанное значение.
+            string xml = await ReadWindowsProfileXmlAsync(adapter, name, cancellationToken).ConfigureAwait(false);
+            if (WindowsProfileXml.ReadAutoConnect(xml) == autoConnect) return;
+        }
+        catch (Exception e) when (e is InvalidOperationException or NetworkInformationException)
+        {
+            throw new InvalidOperationException(failureMessage + " " + e.Message, e);
+        }
+        throw new InvalidOperationException(failure == null ? failureMessage : failureMessage + " " + failure);
+    }
+
+    private static ProfilePack ReadProfile(Guid adapter, string name) => NativeWifi.EnumerateProfiles()
+        .FirstOrDefault(profile => profile.InterfaceInfo.Id == adapter && profile.Name == name)
+        ?? throw new InvalidOperationException("Профиля сети Windows «" + name + "» больше нет.");
 
     public Task SaveWindowsProfileAsync(Guid adapter, string xml, bool overwrite, CancellationToken cancellationToken)
     {
@@ -186,7 +221,7 @@ public sealed class WindowsWifiSystem : IWifiSystem
             {
                 return read();
             }
-            catch (Win32Exception e)
+            catch (Exception e) when (e is Win32Exception or UnauthorizedAccessException)
             {
                 throw new InvalidOperationException("Windows не отдала " + what + ": " + e.Message, e);
             }

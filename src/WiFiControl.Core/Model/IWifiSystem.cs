@@ -22,6 +22,9 @@ public interface IWifiSystem
     /// <summary>Профили сетей Windows этого адаптера.</summary>
     Task<IReadOnlyList<WindowsProfile>> ReadWindowsProfilesAsync(Guid adapter, CancellationToken cancellationToken);
 
+    /// <summary>Меняет режим автоподключения в существующем профиле сети Windows этого адаптера.</summary>
+    Task SetAutoConnectAsync(Guid adapter, string name, bool autoConnect, CancellationToken cancellationToken);
+
     /// <summary>XML профиля сети Windows этого адаптера; пароль в нём зашифрован.</summary>
     Task<string> ReadWindowsProfileXmlAsync(Guid adapter, string name, CancellationToken cancellationToken);
 
@@ -77,7 +80,8 @@ public sealed record VisibleNetwork(byte[] Ssid, int Signal, WifiSecurity Securi
 
 /// <summary>Профиль сети Windows.</summary>
 /// <param name="Network">Ключ сети из имени в профиле (<see cref="NetworkKey"/>).</param>
-public sealed record WindowsProfile(string Name, string Network);
+/// <param name="AutoConnect">Windows подключается к сети автоматически.</param>
+public sealed record WindowsProfile(string Name, string Network, bool AutoConnect = true);
 
 /// <summary>Уведомление WLAN об адаптере.</summary>
 public abstract record WifiNotification(Guid Adapter);

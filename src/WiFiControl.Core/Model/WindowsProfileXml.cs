@@ -24,7 +24,7 @@ public sealed class NewWindowsProfile(string name, string xml)
     public string Xml { get; } = xml;
 }
 
-/// <summary>XML профиля сети Windows (схема WLAN_profile): построение для новой сети и замена пароля в существующем.</summary>
+/// <summary>XML профиля сети Windows (схема WLAN_profile): построение для новой сети и правка существующего профиля.</summary>
 public static class WindowsProfileXml
 {
     private static readonly XNamespace V1 = "http://www.microsoft.com/networking/WLAN/profile/v1";
@@ -126,6 +126,14 @@ public static class WindowsProfileXml
         }
         sharedKey.ReplaceWith(SharedKey(password));
         return document.ToString();
+    }
+
+    internal static bool ReadAutoConnect(string xml)
+    {
+        XElement root = XElement.Parse(xml);
+        // Для инфраструктурной сети Windows по умолчанию подключается автоматически
+        return (string?)root.Element(V1 + "connectionType") == "ESS" &&
+            (string?)root.Element(V1 + "connectionMode") != "manual";
     }
 
     // Windows шифрует пароль сама, когда сохраняет профиль

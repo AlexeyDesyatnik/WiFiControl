@@ -1,4 +1,5 @@
 using System.Text;
+using System.Xml.Linq;
 using WiFiControl.Core.Model;
 
 namespace WiFiControl.Core.Tests;
@@ -44,6 +45,41 @@ public class CurrentStateTests
         NetworkRow row = Assert.Single(state.Networks);
         Assert.Equal(WifiSecurity.Wpa3Personal, row.Security);
         Assert.Equal("Office", row.WindowsProfileName);
+    }
+
+    [Fact]
+    public async Task Auto_connect_is_read_again_from_the_windows_profile_even_for_an_unbound_network()
+    {
+        _wifi.Networks.Add(FakeWifi.Entry("Office", 80, windowsProfile: "Office Wi-Fi"));
+        _wifi.Networks.Add(FakeWifi.Entry("Cafe", 60));
+        XElement profile = XElement.Parse(WindowsProfileXml.Build("Office", NewNetworkSecurity.Open, "", autoConnect: true).Xml);
+        profile.SetElementValue(profile.Name.Namespace + "name", "Office Wi-Fi");
+        _wifi.AddWindowsProfile(new NewWindowsProfile("Office Wi-Fi", profile.ToString()));
+
+        CurrentState before = await ReadAsync();
+        Assert.True(before.Networks[0].AutoConnect);
+        Assert.False(before.Networks[0].IsBound);
+        Assert.Null(before.Networks[1].AutoConnect);
+
+        await _wifi.SetAutoConnectAsync(FakeWifi.WifiId, "Office Wi-Fi", false, CancellationToken.None);
+
+        CurrentState after = await ReadAsync();
+        Assert.False(after.Networks[0].AutoConnect);
+        Assert.Null(after.Networks[1].AutoConnect);
+    }
+
+    [Fact]
+    public async Task A_failure_to_read_windows_profiles_does_not_hide_the_network_list()
+    {
+        _wifi.Networks.Add(FakeWifi.Entry("Office", 80, windowsProfile: "Office"));
+        _wifi.WindowsProfilesFailure = new InvalidOperationException("Windows не отдала профили сетей Windows.");
+
+        CurrentState state = await ReadAsync();
+
+        NetworkRow row = Assert.Single(state.Networks);
+        Assert.Equal("Office", row.WindowsProfileName);
+        Assert.Null(row.AutoConnect);
+        Assert.Equal(_wifi.WindowsProfilesFailure.Message, state.WindowsProfilesReadError);
     }
 
     [Fact]
